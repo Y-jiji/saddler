@@ -1,5 +1,3 @@
-# Coding
-
 To write code, present code skeleton listing for sanctioning; Only after user sanctioning, you code; Use nested bullet list, 1st level file paths, 2st level signatures; Do not attach reasoning / prose / comments / logic description; If user asks, use a dedicated turn to reply
 <<RUST>>
 + for full removal, present full item (remove `static VAR`, `const VAR`)
@@ -27,6 +25,12 @@ To write code, present code skeleton listing for sanctioning; Only after user sa
 + `#include` / `namespace` : inferrable from item path (`ns::xx`), omit dedicated presentation 
 <<CUDA>>
 + inherit `<<CPP>>`, CUDA decoration is part of signature
+<<LEAN>>
++ for full removal, present full item (remove `def name`, `abbrev name`)
++ `structure` / `inductive` / `class` : present code block in full, if addition only, elide unchanged parts
++ `abbrev` (type alias) : present code block in full
++ `def` / `theorem` / `lemma` / `instance` : elide body, present signature in full (implicit args, type class constraints, return type)
++ `namespace` / `section` / `import` / `open` : inferrable from path, omit dedicated presentation
 
 To write a syntax item, use the following convention:
 <<RUST>>
@@ -68,10 +72,20 @@ To write a syntax item, use the following convention:
 <<CUDA>>
 + inherit `<<CPP>>`
 + `comment` : a kernel documents its index layout, not its arithmetic; the buffer order it maintains belongs in the `@class` block
+<<LEAN>>
++ `structure` / `inductive` / `class` name : normal `CamelCase`
+    + field name : one word, or two word `camelCase`
+    + constructor name : one word, or two word `camelCase`
++ `def` / `theorem` / `lemma` / `instance` name : one word, or two word `camelCase`
++ `universe` variable : Unicode or Greek letter
++ `namespace` / file : `CamelCase`
++ `comment` : always use `/-- -/` above the item, `--` inline; per block at most 60 words
++ `comment` : add literal tags in comments to functions more than 60 lines `SHAME(TALLFUNC)` / 120 chars `SHAME(WIDEFUNC)` / 6 args `SHAME(MANYARG)`
 
 To write a test, following listed convention; test is code, so it requires the same present + sanction process:
 <<RUST>>
 + all `#[test]` lives in `mod correct` (correctness testing) or `mod profile` (performance testing)
++ `#[test]` functions do not have to follow the naming convention for the production part
 + for shared but test-only tools for multiple modules, implement `mod fixture`
 + for each test, target a general property. tests should systematically eliminate classes of bugs, so we prefer fuzzing. when implementation is wrong in any sense, at least one test fails with probability > 0
 <<TYPESCRIPT>>
@@ -90,30 +104,8 @@ To write a test, following listed convention; test is code, so it requires the s
 + inherit `<<CPP>>`
 + one table row per template instantiation, sweeping the whole parameter space the unit claims to support, seed varying per row
 + the unit test is driven on the smallest launch shape exhibiting the property; assert on host after `cudaDeviceSynchronize` and copy back, never inside a kernel
+<<LEAN>>
++ exploration and property checks live in `<File>Scratch.lean` beside `<File>.lean`
++ `example` for anonymous property checks only, lives in the scratch file
++ `#eval` / `#check` / `#reduce` for throwaway exploration, lives in the scratch file, never committed
 
-# Surveying
-
-To survey a paper/chapter, report exactly 5 sentences (each sentence at most 400 chars):
-+ **Problem** What final problem/motivation is the paper addressing? Maybe this paper is targeting a subproblem, report both the major problem which role the subproblem plays. 
-+ **Insight** What did the author see from the problem? There must be a correct intuition that directly drives the method. Given the insight, a near-domain expert with sufficient background should be able to derive the method without external help. 
-+ **Method** What path did this paper take to solve the problem? What are the technical details that the insight did not cover?
-+ **Result** To what extent is the problem solved? Metrics? Empirical Observation?
-+ **Impact** So what? Why do people care?
-
-If the paper describes a long-running, multi-stage effort; Report the full lineage of efforts in temporal order; Each effort maps to the 5-sentence format. 
-
-# Writing
-
-To fill in the 5 elements, there are several strategies: 
-+ **Problem** 
-+ **Insight** 
-+ **Method** 
-+ **Result** 
-+ **Impact** 
-
-# Versioning
-
-Commit message: `feature/refactor/chore/test/fix`, top-level crate/module/file path in parentheses, e.g. `feature(some_crate): ...`, only one line
-Just push: code only goes into git push, never copy code files directly unless you are sure that the script can only ever exists on the server and never enter github
-Commit as you go: when building a large set of features, commit changes as you go
-No worktree: do not create worktrees, user don't ask for overlapping changes
