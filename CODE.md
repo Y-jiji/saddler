@@ -17,6 +17,13 @@ To write code, present code skeleton listing for sanctioning; Only after user sa
 + state : present every `useState` / `useReducer` / `useRef` / `useContext` / `useMemo` binding by signature, one per line, declaration order, type argument in full, initializer elided to `(...)` unless it is a literal
 + effect / handler / callback : elide body, present name and signature only
 + JSX : omit unless the element tree itself changes, then present tag skeleton only, no props, no text
+<<SVELTE>>
++ inherit `<<TYPESCRIPT>>`
++ component `.svelte` file : elide `<script>` body except state, present the `$props()` destructuring in full
++ state : present every `$state` / `$state.raw` / `$derived` / `$derived.by` / `$props` / `$bindable` / `getContext` binding by signature, one per line, declaration order, type argument in full, initializer elided to `(...)` unless it is a literal
++ `$effect` / handler / callback : elide body, present name and signature only
++ markup : omit unless the element tree itself changes, then present tag skeleton only, no attributes, no text; `{#if}` / `{#each}` / `{#await}` / `{#key}` / `{#snippet}` count as tags
++ `<style>` : omit dedicated presentation
 <<CPP>>
 + for full removal, present full item (remove `#define VAR`, `constexpr VAR`)
 + `#define` / file scope `constexpr` / `using` : present code block in full
@@ -59,6 +66,14 @@ To write a syntax item, use the following convention:
 + state binding : `const [thing, setThing] = useState<T>(...)`, setter is the field name under a `set` prefix
 + handler name : `on<Event>` as a prop, `handle<Event>` in the body
 + function components only, no module level mutable; domain logic lives in a this-less object in a `.ts` module the component holds in state
+<<SVELTE>>
++ inherit `<<TYPESCRIPT>>`
++ component name : normal `CamelCase`, file name is that name plus `.svelte`; a plain module file stays `kebab-case.ts`
++ props type name : `<Component>Props`, destructured in `let { ... }: <Component>Props = $props()`, never read through one `props` binding
++ rune module name : shared reactive state lives in `<thing>.svelte.ts`, exported factory one word, or two word `camelCase`
++ state binding : `let thing = $state<T>(...)` written through direct assignment, no setter pair; a computed one is `const thing = $derived(...)`
++ handler name : `on<Event>` as a prop, `handle<Event>` in the body
++ one component per file, no module level mutable in `<script module>`; domain logic lives in a this-less object in a `.ts` module the component holds in `$state`
 <<CPP>>
 + `#define` / file scope `constexpr` / block scope compile time `constexpr` name : one word or two word `SNAKE_CAPITAL_CASE`, a macro carries its component as prefix
 + `class` / `struct` / `enum` name : normal `CamelCase`, a hardware prefix stays an acronym
@@ -95,6 +110,11 @@ To write a test, following listed convention; test is code, so it requires the s
 <<TSX>>
 + inherit `<<TYPESCRIPT>>`
 + test state, not markup : drive the component through its state signatures, assert on rendered role / text, never on class name or element tree
++ a component test never covers domain logic; that property belongs to the `.ts` module's own test
+<<SVELTE>>
++ inherit `<<TYPESCRIPT>>`
++ a component test lives in `<Component>.svelte.test.ts` beside it, a rune module test in `<thing>.svelte.test.ts`, both compiled so runes are live
++ test state, not markup : drive the component through its props and state signatures, assert on rendered role / text, never on class name or element tree
 + a component test never covers domain logic; that property belongs to the `.ts` module's own test
 <<CPP>>
 + all tests live in `unittest/`, one file one `main` returning 0 on pass and 1 on fail, named `test_<unit>_<property>` (correctness testing) or `prof_<unit>` (performance testing), registered in `CMakeLists.txt` by `add_executable` then `add_test` under the same name
