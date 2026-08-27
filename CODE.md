@@ -50,6 +50,8 @@ To write a syntax item, use the following convention:
 + `comment` : add literal tags in comments to functions more than 60 lines `SHAME(TALLFUNC)` / 120 chars `SHAME(WIDEFUNC)` / 6 args `SHAME(MANYARG)`
 <<TYPESCRIPT>>
 + `const` name : literal constant one word or two word `SNAKE_CAPITAL_CASE`, otherwise one word or two word `camelCase`
++ `export const` / `export interface` / `export function` : use `export` on items directly
++ a top-level item must be recursively constant, not only itself is a constant, anything it references / accessible through a pointer must be a constant. 
 + `interface` / `type` name : normal `CamelCase`
     + field name : one word, or two word `camelCase`
     + string union member : one word `lowercase`, per union members all same length
