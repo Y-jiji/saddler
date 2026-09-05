@@ -1,6 +1,7 @@
 ---
 name: saddler
 description: scaffold harness into project
+disable-model-invocation: true
 ---
 
 List reference files parallel to current skill. 
