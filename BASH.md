@@ -1,5 +1,3 @@
-# Hooks
-
 Needs `bwrap`, `uv`, `python3`.
 
 `edit_guard.py` — PreToolUse on Bash. Bash cannot modify or delete a git-tracked file, submodules included at any depth. Creating files and writing untracked or gitignored paths still works, so builds and installs are unaffected. A plain `git ...` command is exempt, so checkout and stash pop still work. No effect outside a git repo, or outside the project dir. Refuses the command above 2900 tracked files.
