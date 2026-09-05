@@ -20,6 +20,7 @@ tar -C "$SRC" \
     --exclude='.git' \
     --exclude='.claude' \
     --exclude='install.sh' \
+    --exclude='README.md' \
     -cf - . | tar -C "$DEST" -xf -
 
 echo "installed $NAME -> $DEST"
