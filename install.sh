@@ -19,8 +19,10 @@ mkdir -p "$DEST"
 tar -C "$SRC" \
     --exclude='.git' \
     --exclude='.claude' \
+    --exclude="CLAUDE.md" \
     --exclude='install.sh' \
     --exclude='README.md' \
+    --exclude='banner.svg' \
     -cf - . | tar -C "$DEST" -xf -
 
 echo "installed $NAME -> $DEST"
