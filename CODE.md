@@ -32,12 +32,6 @@ To write code, present code skeleton listing for sanctioning; Only after user sa
 + `#include` / `namespace` : inferrable from item path (`ns::xx`), omit dedicated presentation 
 <<CUDA>>
 + inherit `<<CPP>>`, CUDA decoration is part of signature
-<<LEAN>>
-+ for full removal, present full item (remove `def name`, `abbrev name`)
-+ `structure` / `inductive` / `class` : present code block in full, if addition only, elide unchanged parts
-+ `abbrev` (type alias) : present code block in full
-+ `def` / `theorem` / `lemma` / `instance` : elide body, present signature in full (implicit args, type class constraints, return type)
-+ `namespace` / `section` / `import` / `open` : inferrable from path, omit dedicated presentation
 <<PYTHON>>
 + for full removal, present full item (remove `def name`, `VAR: Final = ...`)
 + module level binding / `Final` / `TypeAlias` : present code block in full, initializer elided to `...` unless it is a literal
@@ -96,15 +90,6 @@ To write a syntax item, use the following convention:
 <<CUDA>>
 + inherit `<<CPP>>`
 + `comment` : a kernel documents its index layout, not its arithmetic; the buffer order it maintains belongs in the `@class` block
-<<LEAN>>
-+ `structure` / `inductive` / `class` name : normal `CamelCase`
-    + field name : one word, or two word `camelCase`
-    + constructor name : one word, or two word `camelCase`
-+ `def` / `theorem` / `lemma` / `instance` name : one word, or two word `camelCase`
-+ `universe` variable : Unicode or Greek letter
-+ `namespace` / file : `CamelCase`
-+ `comment` : always use `/-- -/` above the item, `--` inline; per block at most 60 words
-+ `comment` : add literal tags in comments to functions more than 60 lines `SHAME(TALLFUNC)` / 120 chars `SHAME(WIDEFUNC)` / 6 args `SHAME(MANYARG)`
 <<PYTHON>>
 + module level constant name : one word or two word `SNAKE_CAPITAL_CASE`, annotated `Final`
 + `class` / `Protocol` / `TypedDict` / `Enum` name : normal `CamelCase`
@@ -142,10 +127,6 @@ To write a test, following listed convention; test is code, so it requires the s
 + inherit `<<CPP>>`
 + one table row per template instantiation, sweeping the whole parameter space the unit claims to support, seed varying per row
 + the unit test is driven on the smallest launch shape exhibiting the property; assert on host after `cudaDeviceSynchronize` and copy back, never inside a kernel
-<<LEAN>>
-+ exploration and property checks live in `<File>Scratch.lean` beside `<File>.lean`
-+ `example` for anonymous property checks only, lives in the scratch file
-+ `#eval` / `#check` / `#reduce` for throwaway exploration, lives in the scratch file, never committed
 <<PYTHON>>
 + all tests live in `test_<module>.py` beside the module, collected by `pytest`
 + a test is named `test_<unit>_<property>` (correctness testing) or `prof_<unit>` (performance testing), and does not have to follow the naming convention for the production part
