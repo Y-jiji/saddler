@@ -68,8 +68,76 @@ The assistant's final turn was:
 {calls}
 --- end ---
 
-Reply with one JSON object and nothing else:
+Reply with one bare JSON object and nothing else -- no prose, no code fence:
 {{"pass": true|false, "reason": "<one sentence>"}}"""
+
+# Stop hook for the judge session: refuse to end the turn until the final
+# message parses as the verdict object, so the judge repairs its own format.
+GUARD = '''#!/usr/bin/env python3
+import json, pathlib, sys
+
+LIMIT = 3
+REASON = ('Reply with one bare JSON object: {"pass": bool, "reason": str}. '
+          'No prose, no fences.')
+
+
+def last_assistant_text(path):
+    text = ""
+    for line in pathlib.Path(path).read_text().splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        message = entry.get("message") or {}
+        if message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            text = content
+        else:
+            joined = "".join(b.get("text", "") for b in content
+                             if isinstance(b, dict) and b.get("type") == "text")
+            if joined.strip():
+                text = joined
+    return text.strip()
+
+
+def main():
+    payload = json.load(sys.stdin)
+    raw = last_assistant_text(payload.get("transcript_path", ""))
+    try:
+        json.JSONDecoder().raw_decode(raw, raw.index("{"))
+        return
+    except (ValueError, KeyError):
+        pass
+
+    tally = pathlib.Path(".judge_blocks")
+    count = int(tally.read_text() or 0) if tally.exists() else 0
+    if count >= LIMIT:
+        return
+    tally.write_text(str(count + 1))
+    json.dump({"decision": "block", "reason": REASON}, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+GUARD_SETTINGS = json.dumps({
+    "hooks": {
+        "Stop": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": 'python3 "$CLAUDE_PROJECT_DIR/judge_guard.py"',
+                        "timeout": 10,
+                    }
+                ],
+            }
+        ]
+    }
+}, indent=2)
 
 
 def seed(dst: Path, repo: dict[str, str], soul: Path) -> None:
@@ -124,16 +192,21 @@ def judge(case, text, calls, model: str | None) -> tuple[bool, str]:
         text=text or "(empty)",
         calls=rendered,
     )
-    with tempfile.TemporaryDirectory() as tmp:
-        cmd = ["claude", "-p", prompt, "--output-format", "json"]
+    with tempfile.TemporaryDirectory(prefix="soul-judge-") as tmp:
+        cwd = Path(tmp)
+        (cwd / "judge_guard.py").write_text(GUARD)
+        (cwd / ".claude").mkdir()
+        (cwd / ".claude" / "settings.json").write_text(GUARD_SETTINGS)
+        cmd = ["claude", "-p", prompt, "--output-format", "json",
+               "--disallowed-tools", "Edit,Write,Bash"]
         if model:
             cmd += ["--model", model]
-        proc = subprocess.run(cmd, cwd=tmp, capture_output=True, text=True)
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     if proc.returncode != 0:
         return False, f"judge failed: {proc.stderr.strip()[:200]}"
     try:
         raw = json.loads(proc.stdout)["result"]
-        verdict = json.loads(raw[raw.index("{"):raw.rindex("}") + 1])
+        verdict, _ = json.JSONDecoder().raw_decode(raw, raw.index("{"))
     except (ValueError, KeyError) as exc:
         return False, f"unparsable verdict: {exc}"
     return bool(verdict.get("pass")), str(verdict.get("reason", ""))
