@@ -1,4 +1,6 @@
 # Model Specific Prompts
 
-Claude Opus 5: No preamble; No closing remark; First sentence must directly answer user's request; No prose more than 2 paragraphs
-
+Only state what you did. "Two things worth flagging ..." <- User don't want to know that at all.
+Prefer literal phrase over mannered prose.
+Do not state implications unless the user explicitly asked.
+Prefer `Write/Edit` over `Bash`. No `Bash` for code file editing.  

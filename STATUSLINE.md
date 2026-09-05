@@ -5,7 +5,14 @@ Setup statusline to be like:
 
 Example:
 ```
-1.25k @ ~/Documents/Project (main)
+1.3k @ ~/Documents/Project (main)
+1000.7k @ ~/Documents/Project (master)
 ```
 
 If not inside `~`, show absolute path. 
+If not inside a git repo, show no branch. 
+
+Example: 
+```
+0k @ /etc/sudoers
+```
