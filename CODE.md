@@ -1,4 +1,4 @@
-To write code, present code skeleton listing for sanctioning; Only after user sanctioning, you code; Use nested bullet list, 1st level file paths, 2st level signatures; Do not attach reasoning / prose / comments / logic description; If user asks, use a dedicated turn to reply
+To write code, present code skeleton listing for sanctioning; Only after user sanctioning, you code; Use nested bullet list, 1st level file paths, 2st level signatures + SHAME(...) tag when syntax rules match; Do not attach reasoning / prose / comments / logic description; If user asks, use a dedicated turn to reply
 <<RUST>>
 + for full removal, present full item (remove `static VAR`, `const VAR`)
 + `static` / `const` / `type` : present code block in full
@@ -38,6 +38,13 @@ To write code, present code skeleton listing for sanctioning; Only after user sa
 + `abbrev` (type alias) : present code block in full
 + `def` / `theorem` / `lemma` / `instance` : elide body, present signature in full (implicit args, type class constraints, return type)
 + `namespace` / `section` / `import` / `open` : inferrable from path, omit dedicated presentation
+<<PYTHON>>
++ for full removal, present full item (remove `def name`, `VAR: Final = ...`)
++ module level binding / `Final` / `TypeAlias` : present code block in full, initializer elided to `...` unless it is a literal
++ `class` / `Protocol` / `TypedDict` / `Enum` / `dataclass` : present code block in full, field annotations included, method bodies elided; if addition only, elide unchanged parts
++ `def` / `async def` : elide function body, present signature in full, annotations and return type included
++ decorator : part of the signature, present the decorator line above the item it applies to
++ `import` / package module : inferrable from path, omit dedicated presentation
 
 To write a syntax item, use the following convention:
 <<RUST>>
@@ -98,6 +105,15 @@ To write a syntax item, use the following convention:
 + `namespace` / file : `CamelCase`
 + `comment` : always use `/-- -/` above the item, `--` inline; per block at most 60 words
 + `comment` : add literal tags in comments to functions more than 60 lines `SHAME(TALLFUNC)` / 120 chars `SHAME(WIDEFUNC)` / 6 args `SHAME(MANYARG)`
+<<PYTHON>>
++ module level constant name : one word or two word `SNAKE_CAPITAL_CASE`, annotated `Final`
++ `class` / `Protocol` / `TypedDict` / `Enum` name : normal `CamelCase`
+    + field name : one word, or two word `snake_case`, per class fields all same length
+    + `Enum` member name : one word, or two word `SNAKE_CAPITAL_CASE`, per enum members all same length
++ `def` / local / parameter name : one word, or two word `snake_case`, file name `snake_case`
++ every parameter and return annotated, no bare `Any`; no module level mutable
++ `comment` : always use `"""..."""` as the first statement of the item, do not comment in function bodies; per block at most 60 words
++ `comment` : add literal tags in comments to functions more than 60 lines `SHAME(TALLFUNC)` / 120 chars `SHAME(WIDEFUNC)` / 6 args `SHAME(MANYARG)`
 
 To write a test, following listed convention; test is code, so it requires the same present + sanction process:
 <<RUST>>
@@ -130,3 +146,8 @@ To write a test, following listed convention; test is code, so it requires the s
 + exploration and property checks live in `<File>Scratch.lean` beside `<File>.lean`
 + `example` for anonymous property checks only, lives in the scratch file
 + `#eval` / `#check` / `#reduce` for throwaway exploration, lives in the scratch file, never committed
+<<PYTHON>>
++ all tests live in `test_<module>.py` beside the module, collected by `pytest`
++ a test is named `test_<unit>_<property>` (correctness testing) or `prof_<unit>` (performance testing), and does not have to follow the naming convention for the production part
++ a test draws its inputs from `random.Random(seed)`, the seed a parameter swept by `pytest.mark.parametrize`
++ for each test, target a general property. tests should systematically eliminate classes of bugs, so we prefer fuzzing. when implementation is wrong in any sense, at least one test fails with probability > 0. more over, profile tests output performance stats for the target function.
