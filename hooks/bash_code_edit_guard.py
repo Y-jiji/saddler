@@ -1,23 +1,25 @@
-#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["tree-sitter", "tree-sitter-bash"]
+# ///
 """PreToolUse hook for the Bash tool: refuse shell commands that write code files.
 
-The decision is made from the command string, before anything runs. The hook
-modifies nothing and invokes no git, so a wrong verdict costs a blocked command,
-never destroyed work.
+The command is parsed with the tree-sitter bash grammar before anything runs.
+The hook modifies nothing and invokes no git, so a wrong verdict costs a blocked
+command, never destroyed work.
 
-Reliability comes from a restricted grammar rather than from pattern guessing.
-Only a pipeline of simple commands with redirections is accepted:
+One statement per call, optionally backgrounded:
 
-    cmd word... [redirect...] [| cmd word... [redirect...]]...
+    cmd word... [redirect...] [| cmd ...] [&]
 
-Everything else is refused unparsed -- command substitution, heredocs, `;`,
-`&&`, `||`, background `&`, subshells, groups, loops, conditionals, functions.
-Within that grammar the scanner is exact about quoting, so every word is known
-literally and write targets can be read off the parse rather than guessed.
+The accepted node types are an allowlist (ALLOWED). Any other node -- command
+substitution, heredocs, here-strings, process substitution, `;`, `&&`, `||`,
+subshells, groups, loops, conditionals, function definitions -- is refused by
+name. A grammar the parser flags as containing an error is refused too.
 
-The analysis fails closed. A construct the scanner does not model, a word it
-cannot resolve to a literal, or a nested command string it cannot parse is a
-denial, not a pass.
+The analysis fails closed. An unlisted node type, a write target carrying an
+expansion or a glob, a nested command string that cannot be read literally, and
+any internal error are all denials.
 
 Version control commands are not treated as shell writes. `git stash pop`,
 `git reset` and `git checkout` write files out of the object store on purpose.
@@ -26,8 +28,10 @@ Their redirections are still analyzed.
 
 import json
 import os
-import re
 import sys
+
+import tree_sitter_bash
+from tree_sitter import Language, Parser
 
 CODE_EXT = {
     ".c", ".cc", ".cpp", ".cs", ".css", ".cxx", ".ex", ".exs", ".go", ".h",
@@ -37,32 +41,41 @@ CODE_EXT = {
     ".ts", ".tsx", ".vue", ".yaml", ".yml", ".zig",
 }
 
-VCS = {"git", "hg", "svn", "jj", "bzr"}
+# Structural allowlist. Anything the parser produces that is not here is a
+# denial, so a construct nobody thought about fails closed rather than open.
+ALLOWED = {
+    "program", "comment",
+    "command", "command_name", "pipeline", "redirected_statement",
+    "variable_assignment", "variable_name",
+    "word", "number", "string", "raw_string", "ansi_c_string",
+    "string_content", "concatenation", "escape_sequence",
+    "simple_expansion", "expansion",
+    "file_redirect", "file_descriptor",
+    "|", "&", "=", ">", ">>", "<", ">&", "<&", "&>", "&>>", ">|", "$", "\"",
+    "${", "{", "}",                # only as expansion delimiters, e.g. ${HOME}
+}
 
-# wrappers whose tail is itself a command: analyzed recursively
+# words whose literal value is not knowable here
+UNRESOLVED = {"simple_expansion", "expansion", "command_substitution",
+              "arithmetic_expansion", "process_substitution"}
+GLOB_CHARS = set("*?[")
+
+# redirect operators that name a file rather than duplicate a descriptor
+WRITE_OPS = {">", ">>", "&>", "&>>", ">|"}
+DUP_OPS = {">&", "<&"}
+
+VCS = {"git", "hg", "svn", "jj", "bzr"}
 WRAPPERS = {"sudo", "env", "nice", "ionice", "nohup", "stdbuf", "time",
             "timeout", "xargs", "command", "builtin", "exec", "doas"}
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
+WRAPPER_OPERANDS = {"timeout": 1}      # leading operands before the command
 
-# heads whose arguments name files they write
 WRITES_ARGS = {"rm", "truncate", "tee", "patch", "shred", "unlink", "touch",
                "split", "chmod", "chown", "chgrp", "ln"}
 INPLACE = {"sed", "perl", "ruby", "gawk", "awk"}      # only with -i
 DEST_LAST = {"cp", "mv", "install", "rsync", "dd"}
 
-REDIRECT_OPS = {">", ">>", "&>", "&>>", ">|"}          # produce a file target
-FD_DUP_OPS = {">&", "<&"}                              # no file target
-READ_OPS = {"<"}
-BANNED_OPS = {";", "&&", "||", "&", "(", ")", "{", "}", "<<", "<<<", "<>", "\n"}
-
-KEYWORDS = {"for", "while", "until", "if", "then", "else", "elif", "fi", "do",
-            "done", "case", "esac", "select", "function", "coproc"}
-
-GLOB_CHARS = set("*?[")
-
-ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-# leading operands some wrappers take before the command they run
-WRAPPER_OPERANDS = {"timeout": 1, "nice": 0, "ionice": 0}
+PARSER = Parser(Language(tree_sitter_bash.language()))
 
 
 class Refuse(Exception):
@@ -70,260 +83,152 @@ class Refuse(Exception):
 
 
 # --------------------------------------------------------------------------
-# scanner: quote-exact tokenizer for the restricted grammar
+# reading the tree
 # --------------------------------------------------------------------------
 
-def scan(text):
-    """Tokenize into ('WORD', literal, resolved) and ('OP', op, None).
+def text_of(node, src):
+    return src[node.start_byte:node.end_byte].decode("utf-8", "replace")
 
-    `resolved` is False when the word contains an expansion or glob, i.e. its
-    runtime value is not knowable here. Refuses anything outside the grammar.
+
+def check_types(node, src):
+    """Refuse any node type outside the allowlist, deepest name first."""
+    if node.type not in ALLOWED:
+        raise Refuse("`%s` is not accepted; one command per call, pipes and "
+                     "redirects only" % text_of(node, src).split("\n")[0][:40])
+    for child in node.children:
+        check_types(child, src)
+
+
+def is_resolved(node, src):
+    """False when the word's runtime value depends on an expansion or glob.
+
+    Globbing is not a node type -- an unquoted `*.py` is a plain `word` -- so
+    the characters are checked directly. Quoting turns a word into a string or
+    raw_string node, where those characters are literal.
     """
-    tokens = []
-    word, resolved, has_word = [], True, False
-    i, n = 0, len(text)
+    if node.type in UNRESOLVED:
+        return False
+    if node.type == "word" and set(text_of(node, src)) & GLOB_CHARS:
+        return False
+    for child in node.children:
+        if not is_resolved(child, src):
+            return False
+    return True
 
-    def flush():
-        nonlocal word, resolved, has_word
-        if has_word:
-            tokens.append(("WORD", "".join(word), resolved))
-        word, resolved, has_word = [], True, False
 
-    while i < n:
-        c = text[i]
+def literal(node, src):
+    """The literal value of a word, with quoting removed."""
+    if node.type == "raw_string":
+        return text_of(node, src)[1:-1]
+    if node.type in ("string", "concatenation", "ansi_c_string"):
+        if not node.children:
+            return text_of(node, src)
+        return "".join(literal(c, src) for c in node.children
+                       if c.type not in ('"', "'"))
+    if node.type == "escape_sequence":
+        return text_of(node, src)[-1:]
+    return text_of(node, src)
 
-        if c in " \t":
-            flush()
-            i += 1
+
+ARG_TYPES = {"word", "number", "string", "raw_string", "ansi_c_string",
+             "concatenation", "simple_expansion", "expansion"}
+
+
+def command_words(node, src):
+    """(argv, resolved_flags) for a `command` node, assignments dropped."""
+    argv, flags = [], []
+    for child in node.named_children:
+        if child.type == "variable_assignment":
+            continue                       # `FOO=1 cmd` -- not the command
+        if child.type == "command_name":
+            inner = child.named_children[0] if child.named_children else child
+            argv.append(literal(inner, src))
+            flags.append(is_resolved(inner, src))
+        elif child.type in ARG_TYPES:
+            argv.append(literal(child, src))
+            flags.append(is_resolved(child, src))
+    return argv, flags
+
+
+def redirect_targets(node, src):
+    """[(literal, resolved)] for each file_redirect under this statement."""
+    out = []
+    for child in node.children:
+        if child.type != "file_redirect":
             continue
-
-        if c == "\n":
-            raise Refuse("multi-line commands are not accepted")
-
-        if c == "#" and not has_word:
-            break                                     # trailing comment
-
-        if c == "\\":
-            if i + 1 >= n:
-                raise Refuse("trailing backslash")
-            word.append(text[i + 1])
-            has_word = True
-            i += 2
-            continue
-
-        if c == "'":                                  # literal, no expansion
-            j = text.find("'", i + 1)
-            if j < 0:
-                raise Refuse("unterminated single quote")
-            word.append(text[i + 1:j])
-            has_word = True
-            i = j + 1
-            continue
-
-        if c == '"':
-            i += 1
-            while i < n and text[i] != '"':
-                if text[i] == "\\" and i + 1 < n:
-                    word.append(text[i + 1])
-                    i += 2
-                    continue
-                if text[i] == "`":
-                    raise Refuse("command substitution is not accepted")
-                if text[i] == "$" and i + 1 < n and text[i + 1] == "(":
-                    raise Refuse("command substitution is not accepted")
-                if text[i] == "$":
-                    resolved = False
-                word.append(text[i])
-                i += 1
-            if i >= n:
-                raise Refuse("unterminated double quote")
-            has_word = True
-            i += 1
-            continue
-
-        if c == "`":
-            raise Refuse("command substitution is not accepted")
-
-        if c == "$":
-            if i + 1 < n and text[i + 1] == "(":
-                raise Refuse("command substitution is not accepted")
-            resolved = False
-            word.append(c)
-            has_word = True
-            i += 1
-            continue
-
-        if c in "<>":
-            # process substitution
-            if i + 1 < n and text[i + 1] == "(":
-                raise Refuse("process substitution is not accepted")
-            if c == "<" and text[i:i + 3] == "<<<":
-                raise Refuse("here-strings are not accepted")
-            if c == "<" and text[i:i + 2] == "<<":
-                raise Refuse("heredocs are not accepted")
-            if c == "<" and text[i:i + 2] == "<>":
-                raise Refuse("read-write redirection is not accepted")
-            # a bare digit run immediately before the operator is an fd
-            fd = ""
-            if has_word and "".join(word).isdigit() and resolved:
-                fd = "".join(word)
-                word, has_word = [], False
-            flush()
-            op = c
-            i += 1
-            if i < n and text[i] == c:                # >> or <<(already caught)
-                op += c
-                i += 1
-            elif i < n and text[i] in "&|":           # >& or >|
-                op += text[i]
-                i += 1
-            tokens.append(("OP", fd + op if fd else op, None))
-            continue
-
-        if c == "&":
-            flush()
-            if text[i:i + 2] == "&&":
-                raise Refuse("`&&` is not accepted; only pipes and redirects")
-            if i + 1 < n and text[i + 1] == ">":
-                op = "&>>" if text[i:i + 3] == "&>>" else "&>"
-                tokens.append(("OP", op, None))
-                i += len(op)
-                continue
-            raise Refuse("background `&` is not accepted")
-
-        if c == "|":
-            flush()
-            if text[i:i + 2] == "||":
-                raise Refuse("`||` is not accepted; only pipes and redirects")
-            tokens.append(("OP", "|", None))
-            i += 1
-            continue
-
-        if c == ";":
-            raise Refuse("`;` is not accepted; only pipes and redirects")
-
-        if c in "()":
-            raise Refuse("subshells are not accepted")
-
-        # a brace group is `{` standing alone; `{}` in xargs is a plain word
-        if c in "{}" and not has_word and (i + 1 >= n or text[i + 1] in " \t"):
-            raise Refuse("command groups are not accepted")
-
-        if c in GLOB_CHARS:
-            resolved = False
-            word.append(c)
-            has_word = True
-            i += 1
-            continue
-
-        word.append(c)
-        has_word = True
-        i += 1
-
-    flush()
-    return tokens
+        op = next((c.type for c in child.children
+                   if c.type in WRITE_OPS or c.type in DUP_OPS), None)
+        if op is None or op in DUP_OPS:
+            continue                       # 2>&1 duplicates an fd, no file
+        target = next((c for c in child.named_children
+                       if c.type != "file_descriptor"), None)
+        if target is None:
+            raise Refuse("redirection without a target")
+        out.append((literal(target, src), is_resolved(target, src)))
+    return out
 
 
-# --------------------------------------------------------------------------
-# parser: pipeline of simple commands
-# --------------------------------------------------------------------------
-
-class Command:
-    def __init__(self):
-        self.words = []          # [(literal, resolved)]
-        self.writes = []         # [(literal, resolved)] from redirections
-
-    @property
-    def argv(self):
-        return [w for w, _ in self.words]
-
-
-def parse(text):
-    """Return the list of Commands in the pipeline. Refuses anything else."""
-    tokens = scan(text)
-    if not tokens:
+def statements(program, src):
+    """The single statement of the program, plus its redirect targets."""
+    bodies = [c for c in program.named_children if c.type != "comment"]
+    if not bodies:
         raise Refuse("empty command")
+    if len(bodies) > 1:
+        raise Refuse("one command per call; found %d statements" % len(bodies))
 
-    commands, cur, i = [], Command(), 0
-    while i < len(tokens):
-        kind, value, resolved = tokens[i]
-        if kind == "WORD":
-            cur.words.append((value, resolved))
-            i += 1
-            continue
+    # a trailing `&` backgrounds the statement; `&` between statements is a
+    # list, and is already excluded by the single-statement rule above
+    for i, child in enumerate(program.children):
+        if child.type == "&" and i != len(program.children) - 1:
+            raise Refuse("`&` between commands is a list; one command per call")
 
-        if value == "|":
-            if not cur.words:
-                raise Refuse("empty pipeline stage")
-            commands.append(cur)
-            cur = Command()
-            i += 1
-            continue
+    body = bodies[0]
+    writes = []
+    while body.type == "redirected_statement":
+        writes.extend(redirect_targets(body, src))
+        inner = [c for c in body.named_children if c.type != "file_redirect"]
+        if not inner:
+            raise Refuse("redirection without a command")
+        body = inner[0]
 
-        op = value.lstrip("0123456789")
-        if op in BANNED_OPS:
-            raise Refuse("`%s` is not accepted; only pipes and redirects" % op)
-        if op in FD_DUP_OPS:
-            i += 2 if i + 1 < len(tokens) else 1      # 2>&1: consume the fd
-            continue
-        if op in REDIRECT_OPS or op in READ_OPS:
-            if i + 1 >= len(tokens) or tokens[i + 1][0] != "WORD":
-                raise Refuse("redirection without a target")
-            target, tgt_resolved = tokens[i + 1][1], tokens[i + 1][2]
-            if op in REDIRECT_OPS:
-                cur.writes.append((target, tgt_resolved))
-            i += 2
-            continue
-        raise Refuse("unsupported operator `%s`" % op)
-
-    if not cur.words and not cur.writes:
-        raise Refuse("empty pipeline stage")
-    commands.append(cur)
-    return commands
+    commands = ([c for c in body.named_children if c.type == "command"]
+                if body.type == "pipeline" else
+                [body] if body.type == "command" else [])
+    if not commands:
+        raise Refuse("`%s` is not a simple command" % body.type)
+    return commands, writes
 
 
 # --------------------------------------------------------------------------
 # nested commands
 # --------------------------------------------------------------------------
 
-def unwrap(argv):
-    """Peel wrappers off argv, yielding nested command strings to re-analyze.
-
-    Returns (effective_argv, nested_strings). Refuses when a wrapper hides a
-    command string that cannot be read literally.
-    """
-    nested = []
-    i = 0
+def unwrap(argv, resolved):
+    """Peel wrappers, returning (effective_argv, nested command strings)."""
+    nested, i = [], 0
     while i < len(argv):
-        # `FOO=1 cmd ...` -- leading assignments are not the command
-        if ASSIGN_RE.match(argv[i]):
-            i += 1
-            continue
         head = os.path.basename(argv[i])
         if head in SHELLS:
             for j in range(i + 1, len(argv)):
                 if argv[j] in ("-c", "-lc", "-ic"):
                     if j + 1 >= len(argv):
                         raise Refuse("`%s -c` without a command" % head)
+                    if not resolved[j + 1]:
+                        raise Refuse("`%s -c` argument is not a literal "
+                                     "string" % head)
                     nested.append(argv[j + 1])
                     return argv[i:], nested
-            return argv[i:], nested            # interactive shell, no -c
+            return argv[i:], nested
         if head in WRAPPERS:
             i += 1
             while i < len(argv) and argv[i].startswith("-"):
                 i += 1
-            # `timeout 5 cmd` -- the duration is not the command
             for _ in range(WRAPPER_OPERANDS.get(head, 0)):
                 if i < len(argv) and not argv[i].startswith("-"):
                     i += 1
             if head == "xargs":
-                # xargs builds its command from stdin; targets are unknowable
-                if i < len(argv):
-                    nested.append(" ".join(argv[i:]))
-                raise Refuse("`xargs` builds commands from stdin; targets "
+                raise Refuse("`xargs` builds its command from stdin; targets "
                              "cannot be checked")
-            while i < len(argv) and "=" in argv[i] and head == "env":
-                i += 1
             continue
         break
     return argv[i:], nested
@@ -365,49 +270,51 @@ def write_targets(argv):
 
 
 def recursive_delete(argv, cwd):
-    """Directories a recursive delete would take out inside the project."""
+    """Project directories a recursive delete would take out."""
     if not argv or os.path.basename(argv[0]) != "rm":
         return []
     flags = "".join(a for a in argv[1:] if a.startswith("-"))
     if "r" not in flags and "R" not in flags:
         return []
-    hits = []
-    for a in argv[1:]:
-        if a.startswith("-") or not in_project(a, cwd):
-            continue
-        if os.path.isdir(os.path.join(cwd, os.path.expanduser(a))):
-            hits.append(a)
-    return hits
+    return [a for a in argv[1:]
+            if not a.startswith("-") and in_project(a, cwd)
+            and os.path.isdir(os.path.join(cwd, os.path.expanduser(a)))]
 
 
 def analyze(command, cwd, depth=0):
-    """Return the list of dangerous findings. Raises Refuse to fail closed."""
+    """Dangerous findings for a command string. Raises Refuse to fail closed."""
     if depth > 3:
         raise Refuse("command nesting is too deep to check")
 
+    src = command.encode()
+    tree = PARSER.parse(src)
+    if tree.root_node.has_error:
+        raise Refuse("the command is not valid bash")
+    check_types(tree.root_node, src)
+
+    commands, redirects = statements(tree.root_node, src)
     findings = []
-    for cmd in parse(command):
-        argv, nested = unwrap(cmd.argv)
+    candidates = list(redirects)
+
+    for cmd in commands:
+        argv, resolved = command_words(cmd, src)
+        by_word = dict(zip(argv, resolved))
+        effective, nested = unwrap(argv, resolved)
 
         for sub in nested:
             findings.extend(analyze(sub, cwd, depth + 1))
 
-        # redirection targets belong to the stage, wrappers or not
-        candidates = [(t, r) for t, r in cmd.writes]
-        resolved_by_word = dict((w, r) for w, r in cmd.words)
-        for t in write_targets(argv):
-            candidates.append((t, resolved_by_word.get(t, True)))
-
-        for target, resolved in candidates:
-            if not resolved:
-                raise Refuse(
-                    "write target `%s` depends on an expansion or glob and "
-                    "cannot be checked" % target)
-            if is_code(target) and in_project(target, cwd):
-                findings.append("writes code file: %s" % target)
-
-        for d in recursive_delete(argv, cwd):
+        for target in write_targets(effective):
+            candidates.append((target, by_word.get(target, True)))
+        for d in recursive_delete(effective, cwd):
             findings.append("recursively deletes project directory: %s" % d)
+
+    for target, ok in candidates:
+        if not ok:
+            raise Refuse("write target `%s` depends on an expansion or glob "
+                         "and cannot be checked" % target)
+        if is_code(target) and in_project(target, cwd):
+            findings.append("writes code file: %s" % target)
 
     return findings
 
@@ -441,9 +348,12 @@ def main():
     try:
         findings = analyze(command, cwd)
     except Refuse as e:
-        deny("%s\n\nOnly a pipeline of simple commands with redirections is "
-             "accepted. Run one command per call, and use the Edit or Write "
-             "tool for file changes. The command was not run." % e)
+        deny("%s\n\nRun one command per call and use the Edit or Write tool "
+             "for file changes. The command was not run." % e)
+        return
+    except Exception as e:                 # fail closed on our own bugs
+        deny("the guard could not check this command (%s: %s). "
+             "The command was not run." % (type(e).__name__, e))
         return
 
     if findings:
