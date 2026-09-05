@@ -5,6 +5,7 @@
 # Saddler: Per-Project Harness Setup Wizard
 
 To install: `bash install.sh`
+
 To invoke: run claude code in project folder; in claude code, type `/saddler`
 
 # Design
