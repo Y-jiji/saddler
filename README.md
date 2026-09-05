@@ -1,27 +1,40 @@
 <p align="center">
-  <img src="banner.svg" alt="saddler — one thing at a time" width="100%">
+  <img src="banner.svg" alt="saddler — harness your project" width="100%">
 </p>
 
-# saddler
+# Saddler: Per-Project Harness Setup Wizard
 
-`saddler` is a Claude Code skill that saddles an agent: it scaffolds a small set
-of plain-text reference files into a project and then keeps the agent inside
-them. Run `bash install.sh` to copy the folder into `~/.claude/skills`, then invoke
-`/saddler` in any project — the skill is human-triggered only, never
-model-invoked. It lists the reference files sitting next to it, asks per file
-whether to install or opt in, writes `CLAUDE.md`, and sets up hooks. Prompts are
-copied verbatim from the reference files; nothing is invented.
+To install: `bash install.sh`
+To invoke: run claude code in project folder; in claude code, type `/saddler`
 
-The core principle is [`SOUL.md`](SOUL.md): one thing per turn. Every turn is
-exactly one of propose, act, or inform — propose states only what will be done
-and asks for sanction, act implements only what was sanctioned, inform answers
-only what was asked.
+# Design
 
-The other reference files split the same discipline per domain — each one says
-what must be presented for sanctioning and what may then be implemented:
+A rough model of producitivity is `PRODUCTIVITY ∝ #TASKS / (#TURNS * AVERAGE TURN TIME)`
 
-- [`CODE.md`](CODE.md) — code skeleton listing before code, per language, plus naming conventions
-- [`RESEARCH.md`](RESEARCH.md) — section skeletons, plot skeletons, five-sentence paper surveys
-- [`GIT.md`](GIT.md) — one-line commit messages, commit as you go, no worktrees
-- [`BASH.md`](BASH.md) — hooks making git-tracked files read-only to `Bash`
-- [`STATUSLINE.md`](STATUSLINE.md) — `<tokens> @ <folder> (<branch>)`
+This is a wrong model considering task difficulty or a task may set user backwards towards overall goal. 
+
+But here we assume it is true, since the agent is here to complete user tasks.  
+
+We also assume human can capture agent errors instantly. 
+
+## Minimize Redundant Turns
+
+Count a turn as redundant if the agent does something user doesn't expect. 
+
+Mitigation:
+- Setup a feedback loop: build good enough unit tests
+- Let the agent present a code skeleton: user know what will happen before it does
+- Each term process one issue, so agent does not mix multiple jobs
+
+## Minimize Average Turn Time
+
+User must process agent's feedback. That takes time. 
+
+Mitigation:
+- Delay elaboration: less information, more turns, less than human time
+- Make edits visible: user knows it immediately when things indeed go wrong
+- Essential presets: so user doesn't have to enter them each time
+
+## User Obligation
+
+Agent's intelligence dilutes with context length. User must know that.  

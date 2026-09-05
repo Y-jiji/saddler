@@ -103,7 +103,7 @@ To write a test, following listed convention; test is code, so it requires the s
 <<RUST>>
 + all `#[test]` lives in `mod correct` (correctness testing) or `mod profile` (performance testing)
 + `#[test]` functions do not have to follow the naming convention for the production part
-+ for shared but test-only tools for multiple modules, implement `mod fixture`
++ for shared but test-only tools for multiple modules, implement `mod fixture` parallel to `mod correct` and `mod profile`
 + for each test, target a general property. tests should systematically eliminate classes of bugs, so we prefer fuzzing. when implementation is wrong in any sense, at least one test fails with probability > 0
 <<TYPESCRIPT>>
 + all tests live in `<item>.test.ts` beside the item
@@ -130,4 +130,3 @@ To write a test, following listed convention; test is code, so it requires the s
 + exploration and property checks live in `<File>Scratch.lean` beside `<File>.lean`
 + `example` for anonymous property checks only, lives in the scratch file
 + `#eval` / `#check` / `#reduce` for throwaway exploration, lives in the scratch file, never committed
-
