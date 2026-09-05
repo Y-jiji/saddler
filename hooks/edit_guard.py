@@ -10,6 +10,10 @@ a redirect, sed -i, another interpreter, a script, a background child. The
 repository directory stays writable, so creating files and directories is
 allowed and cargo run, npm install and venv creation keep working.
 
+The repository is found from CLAUDE_PROJECT_DIR, the directory the session
+started in, so a `cd` cannot move the guard to another repository or out of
+one. The command still runs in the directory it expects, via --chdir.
+
 The hook rewrites the command through hookSpecificOutput.updatedInput. Two
 commands are passed through untouched: anything outside a git repository, and
 a simple git command (is_simple_git) -- git rewrites tracked files on purpose,
@@ -122,10 +126,19 @@ def repo_root(cwd):
 
 
 def tracked_files(root):
-    """Existing regular tracked files. Symlinks are skipped: binding one
-    resolves to its target, which may sit outside the repository."""
-    r = subprocess.run(["git", "-C", root, "ls-files", "-z"],
-                       capture_output=True, text=True)
+    """Existing regular tracked files, submodules included.
+
+    --recurse-submodules descends to any depth once a submodule is
+    initialized, and reports paths relative to the superproject. An
+    uninitialized submodule contributes nothing, which is correct: its files
+    are not on disk to freeze.
+
+    Symlinks are skipped: binding one resolves to its target, which may sit
+    outside the repository.
+    """
+    r = subprocess.run(
+        ["git", "-C", root, "ls-files", "-z", "--recurse-submodules"],
+        capture_output=True, text=True)
     out = []
     for name in r.stdout.split("\0"):
         if not name:
@@ -180,7 +193,11 @@ def main():
     command = (payload.get("tool_input") or {}).get("command", "")
     cwd = payload.get("cwd") or os.getcwd()
 
-    root = repo_root(cwd)
+    # The repository is anchored to the directory the session started in, not
+    # to where the command happens to run, so a `cd` cannot move the guard to
+    # a different repository -- or out of one.
+    anchor = os.environ.get("CLAUDE_PROJECT_DIR") or cwd
+    root = repo_root(anchor)
     if root is None or is_simple_git(command):
         return                                    # runs unchanged
 
