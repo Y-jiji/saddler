@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
-"""Hook for the Bash tool: catch code files edited by shell commands.
+"""PreToolUse hook for the Bash tool: refuse shell commands that write code files.
 
-PreToolUse   snapshot which code files are already dirty, and their contents.
-PostToolUse  compare. A code file the command touched is reverted with git when
-             its pre-command content was recoverable from git (it was clean);
-             otherwise it is only reported.
+The decision is made from the command string alone, before anything runs. The
+hook touches no files and runs no git. Nothing is modified, so nothing has to be
+restored -- the failure modes are a missed command (an edit gets through) or an
+over-eager match (a command is blocked), never destroyed work.
 
-Wire the same script to both events.
+Version control commands are not analyzed. `git stash pop`, `git reset`,
+`git checkout` and friends write files out of the object store on purpose;
+they are the user's business, not a shell edit.
 """
 
-import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
-import tempfile
 
 CODE_EXT = {
     ".c", ".cc", ".cpp", ".cs", ".css", ".cxx", ".ex", ".exs", ".go", ".h",
@@ -25,145 +24,63 @@ CODE_EXT = {
     ".ts", ".tsx", ".vue", ".yaml", ".yml", ".zig",
 }
 
-# shell commands that write a file, for the no-git-repo fallback
-INPLACE = {"sed", "perl", "ruby"}          # only with -i
-DEST_LAST = {"cp", "mv", "install"}        # only the final argument
-WRITES_ARGS = {"rm", "truncate", "tee", "patch", "shred"}
-REDIRECT_RE = re.compile(r">>?\s*([^\s|;&<>()]+)")
+VCS = {"git", "hg", "svn", "jj", "bzr"}     # manage their own files
+INPLACE = {"sed", "perl", "ruby"}           # only with -i
+DEST_LAST = {"cp", "mv", "install", "rsync"}  # only the final argument
+WRITES_ARGS = {"rm", "truncate", "tee", "patch", "shred", "unlink", "chmod",
+               "touch", "split"}
 
-
-def tokens(text):
-    return [t.strip("\"'") for t in re.split(r"\s+", text.strip()) if t]
-
-
-def git(root, *args):
-    return subprocess.run(
-        ["git", "-C", root, *args], capture_output=True, text=True
-    )
-
-
-def repo_root(cwd):
-    r = subprocess.run(
-        ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True,
-    )
-    return r.stdout.strip() if r.returncode == 0 else None
+REDIRECT_RE = re.compile(r"(?<![0-9<>])>>?\s*([^\s|;&<>()]+)")
+DD_OF_RE = re.compile(r"\bof=([^\s|;&<>()]+)")
+SEGMENT_RE = re.compile(r"\|\||&&|[|;&\n]")
 
 
 def is_code(path):
     return os.path.splitext(path)[1].lower() in CODE_EXT
 
 
-def digest(root, path):
-    try:
-        with open(os.path.join(root, path), "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest()
-    except OSError:
-        return None  # deleted
+def tokens(text):
+    return [t.strip("\"'") for t in text.split() if t.strip("\"'")]
 
 
-def dirty(root):
-    """Code files not clean against HEAD -> content hash (None if gone)."""
-    r = git(root, "status", "--porcelain=v1", "-z", "-uall")
-    if r.returncode != 0:
-        return {}
-    out, fields, i = {}, r.stdout.split("\0"), 0
-    while i < len(fields):
-        entry = fields[i]
-        i += 1
-        if len(entry) < 4:
-            continue
-        code, path = entry[:2], entry[3:]
-        if code[0] in "RC":  # rename/copy: source path follows in its own field
-            i += 1
-        if is_code(path):
-            out[path] = digest(root, path)
-    return out
-
-
-def snapshot_path(session_id):
-    d = os.path.join(tempfile.gettempdir(), "claude-bash-code-guard")
-    os.makedirs(d, exist_ok=True)
-    safe = re.sub(r"[^A-Za-z0-9_-]", "_", session_id or "default")
-    return os.path.join(d, safe + ".json")
-
-
-def pre(payload, cwd):
-    root = repo_root(cwd)
-    snap = {"root": root, "dirty": dirty(root) if root else {}}
-    with open(snapshot_path(payload.get("session_id")), "w") as f:
-        json.dump(snap, f)
-
-
-def post(payload, cwd):
-    try:
-        with open(snapshot_path(payload.get("session_id"))) as f:
-            snap = json.load(f)
-    except (OSError, ValueError):
-        snap = None
-
-    root = repo_root(cwd)
-    if root is None or snap is None or snap.get("root") != root:
-        return fallback(payload, root)
-
-    before, after = snap["dirty"], dirty(root)
-    reverted, warned = [], []
-    for path, now in after.items():
-        if path in before:
-            if before[path] != now:
-                warned.append((path, "was already modified before the command"))
-            continue
-        # clean before the command: HEAD still holds that content
-        if git(root, "cat-file", "-e", "HEAD:" + path).returncode != 0:
-            warned.append((path, "newly created, nothing to revert to"))
-        elif git(root, "checkout", "HEAD", "--", path).returncode == 0:
-            reverted.append(path)
-        else:
-            warned.append((path, "git checkout failed"))
-    return report(reverted, warned)
-
-
-def fallback(payload, root):
-    """No usable git snapshot: name the code files the command looks like it wrote."""
-    cmd = (payload.get("tool_input") or {}).get("command", "")
+def written_paths(command):
+    """Paths this command line looks like it writes. Conservative, not exact."""
     hits = set()
-    for segment in re.split(r"\|\||&&|[|;&\n]", cmd):
+    for segment in SEGMENT_RE.split(command):
         words = tokens(segment)
         if not words:
             continue
-        head = os.path.basename(words[0])
-        args = [w for w in words[1:] if not w.startswith("-")]
+        # step past env assignments and sudo so the real command is at the head
+        i = 0
+        while i < len(words) and ("=" in words[i] or words[i] in ("sudo", "env")):
+            i += 1
+        if i >= len(words):
+            head = ""
+        else:
+            head = os.path.basename(words[i])
+        args = [w for w in words[i + 1:] if not w.startswith("-")]
+
+        if head in VCS:
+            continue  # version control writes files on purpose
+
         if head in WRITES_ARGS:
-            hits.update(w for w in args if is_code(w))
-        elif head in INPLACE and any(w.startswith("-i") for w in words[1:]):
-            hits.update(w for w in args if is_code(w))
-        elif head in DEST_LAST and args and is_code(args[-1]):
+            hits.update(args)
+        elif head in INPLACE and any(w.startswith("-i") for w in words[i + 1:]):
+            hits.update(args)
+        elif head in DEST_LAST and args:
             hits.add(args[-1])
-        hits.update(t for t in REDIRECT_RE.findall(segment) if is_code(t))
-    where = "outside a git repository" if root is None else "no snapshot available"
-    return report([], [(p, where) for p in sorted(hits)])
+        elif head == "dd":
+            hits.update(DD_OF_RE.findall(segment))
+
+        hits.update(REDIRECT_RE.findall(segment))
+    return hits
 
 
-def report(reverted, warned):
-    if not reverted and not warned:
-        return
-    lines = []
-    for p in reverted:
-        lines.append("reverted %s (restored from git)" % p)
-    for p, why in warned:
-        lines.append("NOT reverted %s (%s)" % (p, why))
-    msg = "Bash command edited code files:\n  " + "\n  ".join(lines)
-    json.dump(
-        {
-            "systemMessage": msg,
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": msg
-                + "\nEdit code files with the Edit/Write tools, not shell commands.",
-            },
-        },
-        sys.stdout,
-    )
+def in_project(path, cwd):
+    """True when path resolves inside the session's working directory."""
+    root = os.path.realpath(cwd)
+    full = os.path.realpath(os.path.join(cwd, os.path.expanduser(path)))
+    return full == root or full.startswith(root + os.sep)
 
 
 def main():
@@ -174,10 +91,30 @@ def main():
     if (payload.get("tool_name") or "") != "Bash":
         return
     cwd = payload.get("cwd") or os.getcwd()
-    if payload.get("hook_event_name") == "PreToolUse":
-        pre(payload, cwd)
-    else:
-        post(payload, cwd)
+    command = (payload.get("tool_input") or {}).get("command", "")
+
+    targets = sorted(
+        p for p in written_paths(command) if is_code(p) and in_project(p, cwd)
+    )
+    if not targets:
+        return
+
+    reason = (
+        "This command writes code files in the project: %s\n"
+        "Use the Edit or Write tool instead. The command was not run; "
+        "no file was changed." % ", ".join(targets)
+    )
+    json.dump(
+        {
+            "systemMessage": "Blocked a Bash write to: " + ", ".join(targets),
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            },
+        },
+        sys.stdout,
+    )
 
 
 if __name__ == "__main__":
