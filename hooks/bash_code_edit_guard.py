@@ -28,6 +28,7 @@ Their redirections are still analyzed.
 
 import json
 import os
+import re
 import sys
 
 import tree_sitter_bash
@@ -69,6 +70,11 @@ WRAPPERS = {"sudo", "env", "nice", "ionice", "nohup", "stdbuf", "time",
             "timeout", "xargs", "command", "builtin", "exec", "doas"}
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
 WRAPPER_OPERANDS = {"timeout": 1}      # leading operands before the command
+ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+# `find` runs commands over a set this cannot enumerate
+FIND_ACTIONS = {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls",
+                "-fprint", "-fprintf"}
 
 WRITES_ARGS = {"rm", "truncate", "tee", "patch", "shred", "unlink", "touch",
                "split", "chmod", "chown", "chgrp", "ln"}
@@ -223,6 +229,10 @@ def unwrap(argv, resolved):
             i += 1
             while i < len(argv) and argv[i].startswith("-"):
                 i += 1
+            if head == "env":
+                # `env FOO=1 cmd` -- these are assignments, not the command
+                while i < len(argv) and ASSIGN_RE.match(argv[i]):
+                    i += 1
             for _ in range(WRAPPER_OPERANDS.get(head, 0)):
                 if i < len(argv) and not argv[i].startswith("-"):
                     i += 1
@@ -296,10 +306,21 @@ def analyze(command, cwd, depth=0):
     findings = []
     candidates = list(redirects)
 
-    for cmd in commands:
+    for position, cmd in enumerate(commands):
         argv, resolved = command_words(cmd, src)
         by_word = dict(zip(argv, resolved))
         effective, nested = unwrap(argv, resolved)
+        head = os.path.basename(effective[0]) if effective else ""
+
+        # a shell downstream of a pipe takes its command from stdin, so the
+        # command it will run is not in this string at all
+        if position > 0 and head in SHELLS:
+            raise Refuse("a shell reading its command from a pipe cannot be "
+                         "checked")
+        action = next((a for a in effective[1:] if a in FIND_ACTIONS), None)
+        if head == "find" and action:
+            raise Refuse("`find %s` acts on a set of files that cannot be "
+                         "enumerated here" % action)
 
         for sub in nested:
             findings.extend(analyze(sub, cwd, depth + 1))
