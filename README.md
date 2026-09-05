@@ -6,7 +6,7 @@
 
 `saddler` is a Claude Code skill that saddles an agent: it scaffolds a small set
 of plain-text reference files into a project and then keeps the agent inside
-them. Run `./install.sh` to copy the folder into `~/.claude/skills`, then invoke
+them. Run `bash install.sh` to copy the folder into `~/.claude/skills`, then invoke
 `/saddler` in any project — the skill is human-triggered only, never
 model-invoked. It lists the reference files sitting next to it, asks per file
 whether to install or opt in, writes `CLAUDE.md`, and sets up hooks. Prompts are
