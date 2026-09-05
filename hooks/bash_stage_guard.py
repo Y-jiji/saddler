@@ -23,11 +23,14 @@ version-controlled content. Files the command creates are untracked and are
 NOT removed by the restore -- see KNOWN GAPS at the bottom of this file.
 """
 
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import time
 
 import tree_sitter_bash
 from tree_sitter import Language, Parser
@@ -59,6 +62,20 @@ def toplevel(start):
     r = subprocess.run(["git", "-C", start, "rev-parse", "--show-toplevel"],
                        capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else None
+
+
+def untracked(root):
+    """Untracked, non-ignored files.
+
+    Called at step 2, after step 1 staged everything that already existed, so
+    anything still untracked was created by the command. `git clean -f` is not
+    used: it does not descend into a directory the command created, and `-fd`
+    would also delete the directories themselves.
+    """
+    r = git(root, "ls-files", "--others", "--exclude-standard", "-z")
+    if r.returncode != 0:
+        return []
+    return [p for p in r.stdout.split("\0") if p]
 
 
 def pending(root):
@@ -182,12 +199,94 @@ def classify(command):
 # state carried from pre to post
 # --------------------------------------------------------------------------
 
-def state_path(payload):
-    d = os.path.join(tempfile.gettempdir(), "claude-bash-stage-guard")
+def guard_dir(root):
+    """A state directory of its own for each project path.
+
+    Two checkouts of the same repo, or two unrelated projects, never share a
+    directory: the readable slug is for humans, the digest of the resolved
+    path is what actually keeps them apart.
+    """
+    real = os.path.realpath(root)
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", os.path.basename(real)).strip("-")
+    digest = hashlib.sha256(real.encode()).hexdigest()[:12]
+    d = os.path.join(tempfile.gettempdir(), "claude-bash-stage-guard",
+                     "%s-%s" % (slug or "root", digest))
     os.makedirs(d, exist_ok=True)
+    return d
+
+
+def state_path(payload, root):
+    return os.path.join(guard_dir(root), owner(payload) + ".json")
+
+
+def owner(payload):
     key = payload.get("tool_use_id") or payload.get("session_id") or "default"
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in key)
-    return os.path.join(d, safe + ".json")
+    return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in key)
+
+
+# --------------------------------------------------------------------------
+# one command at a time per repository
+#
+# The index and the work tree are a single shared slot, and steps 1 and 2
+# assume nothing else writes between them. A second session -- or the same
+# session's next command -- must not stage or restore inside that window, so
+# the lock is taken before staging and released after the restore.
+#
+# It cannot be an flock: pre, the command, and post are three separate
+# processes, and an flock dies with the process that took it. So it is a
+# lock file created with O_EXCL, carrying the owner and a timestamp, stolen
+# only once it is older than a command could plausibly still be running.
+# --------------------------------------------------------------------------
+
+LOCK_WAIT = 15.0        # how long a command waits for another to finish
+LOCK_STALE = 900.0      # a lock older than this is treated as abandoned
+
+
+def lock_path(root):
+    return os.path.join(guard_dir(root), "lock")
+
+
+def acquire(root, payload):
+    path = lock_path(root)
+    me = owner(payload)
+    deadline = time.time() + LOCK_WAIT
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump({"owner": me, "at": time.time(),
+                           "session": payload.get("session_id")}, f)
+            return True
+        except FileExistsError:
+            try:
+                with open(path) as f:
+                    held = json.load(f)
+                age = time.time() - float(held.get("at", 0))
+            except (OSError, ValueError, TypeError):
+                age = LOCK_STALE + 1          # unreadable lock is abandoned
+            if age > LOCK_STALE:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+                continue
+            if time.time() >= deadline:
+                return False
+            time.sleep(0.05)
+
+
+def release(root, payload):
+    path = lock_path(root)
+    try:
+        with open(path) as f:
+            held = json.load(f)
+    except (OSError, ValueError):
+        return
+    if held.get("owner") == owner(payload):    # never drop someone else's
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def emit(obj):
@@ -207,77 +306,114 @@ def deny(reason):
 
 # --------------------------------------------------------------------------
 
+def save(payload, root, state):
+    with open(state_path(payload, root), "w") as f:
+        json.dump(state, f)
+
+
 def pre(payload, root):
     top = toplevel(root)
     if top is None:                                        # step 0
-        json.dump({"mode": "no-repo"}, open(state_path(payload), "w"))
+        save(payload, root, {"mode": "no-repo"})
         return
+
+    # every command that reaches git state -- staging, restoring, or an
+    # exempt git command touching the index -- runs alone in this repo
+    if not acquire(root, payload):
+        save(payload, root, {"mode": "denied"})
+        deny("another session is running a command in this repository and "
+             "has not finished. The work tree is mid-snapshot, so running "
+             "now could revert its work. Retry in a moment.")
+        return
+
+    def refuse(reason):
+        release(root, payload)
+        save(payload, root, {"mode": "denied"})
+        deny(reason)
 
     verdict, extra = classify(
         (payload.get("tool_input") or {}).get("command", ""))
     if verdict == "deny":
-        json.dump({"mode": "denied"}, open(state_path(payload), "w"))
-        deny(extra)
+        refuse(extra)
         return
-    if verdict == "exempt":                                # step 1, git
-        json.dump({"mode": "exempt"}, open(state_path(payload), "w"))
+    if verdict == "exempt":                    # git command, index is its own
+        save(payload, root, {"mode": "exempt", "locked": True})
         return
 
     paths, total = pending(top)                            # step 1a
     if total >= MAX_CHANGESET:
-        json.dump({"mode": "denied"}, open(state_path(payload), "w"))
-        deny("the pending change set is %.1f MB across %d files, at or over "
-             "the %d MB automatic-staging limit. Stage or commit what should "
-             "be kept first, then re-run."
-             % (total / 1e6, len(paths), MAX_CHANGESET // (1024 * 1024)))
+        refuse("the pending change set is %.1f MB across %d files, at or over "
+               "the %d MB automatic-staging limit. Stage or commit what should "
+               "be kept first, then re-run."
+               % (total / 1e6, len(paths), MAX_CHANGESET // (1024 * 1024)))
         return
 
     r = git(top, "add", "-A")                              # step 1b
     if r.returncode != 0:
-        json.dump({"mode": "denied"}, open(state_path(payload), "w"))
-        deny("could not stage the work tree (%s)" % r.stderr.strip())
+        refuse("could not stage the work tree (%s)" % r.stderr.strip())
         return
-    json.dump({"mode": "guard", "top": top}, open(state_path(payload), "w"))
+    save(payload, root, {"mode": "guard", "top": top, "locked": True})
 
 
-def post(payload):
+def post(payload, root):
     try:
-        with open(state_path(payload)) as f:
+        with open(state_path(payload, root)) as f:
             state = json.load(f)
     except (OSError, ValueError):
         return                       # no snapshot -> nothing to restore to
     try:
-        os.unlink(state_path(payload))
+        os.unlink(state_path(payload, root))
     except OSError:
         pass
-    if state.get("mode") != "guard":
-        return
+    try:
+        if state.get("mode") == "guard":
+            restore(state, payload, root)
+    finally:
+        if state.get("locked"):      # exempt commands hold it too
+            release(root, payload)
 
+
+def restore(state, payload, root):
     top = state["top"]
-    changed = [p for p in git(top, "diff", "--name-only").stdout.splitlines()
-               if p.strip()]
-    if not changed:
-        return
-    r = git(top, "restore", "--worktree", "--", ".")        # step 2
-    if r.returncode != 0:
-        emit({"systemMessage": "guard could not restore the work tree",
-              "hookSpecificOutput": {
-                  "hookEventName": "PostToolUse",
-                  "additionalContext":
-                      "The work tree was staged before this command but could "
-                      "not be restored afterwards (%s). The command's file "
-                      "changes are still in place." % r.stderr.strip()}})
+    modified = [p for p in git(top, "diff", "--name-only").stdout.splitlines()
+                if p.strip()]
+    created = untracked(top)
+    if not modified and not created:
         return
 
-    msg = ("Reverted %d file(s) this command modified, back to the state "
-           "before it ran:\n  %s" % (len(changed), "\n  ".join(changed)))
+    lines = []
+
+    if modified:                                           # step 2, revert
+        r = git(top, "restore", "--worktree", "--", ".")
+        if r.returncode != 0:
+            emit({"systemMessage": "guard could not restore the work tree",
+                  "hookSpecificOutput": {
+                      "hookEventName": "PostToolUse",
+                      "additionalContext":
+                          "The work tree was staged before this command but "
+                          "could not be restored afterwards (%s). The "
+                          "command's changes are still in place."
+                          % r.stderr.strip()}})
+            return
+        lines += ["reverted %s" % p for p in modified]
+
+    for p in created:                    # step 2, remove created files only
+        try:
+            os.unlink(os.path.join(top, p))
+            lines.append("removed %s (created by the command)" % p)
+        except OSError as e:
+            lines.append("could NOT remove %s (%s)" % (p, e))
+
     emit({
-        "systemMessage": "Reverted %d file(s) modified by the command" % len(changed),
+        "systemMessage": "Undid %d file change(s) made by the command" % len(lines),
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
-            "additionalContext": msg + "\nUse the Edit or Write tool to change "
-                                       "files, or stage your intent with a "
-                                       "separate git command first.",
+            "additionalContext":
+                "The work tree was put back to its state before this command:"
+                "\n  " + "\n  ".join(lines) +
+                "\nDirectories the command created were left in place. Use the "
+                "Edit or Write tool to change files, or run a separate git "
+                "command first to record what should be kept.",
         },
     })
 
@@ -296,7 +432,7 @@ def main():
         if event == "PreToolUse":
             pre(payload, root)
         else:
-            post(payload)
+            post(payload, root)
     except Exception as e:
         if event == "PreToolUse":
             deny("the guard failed (%s: %s)" % (type(e).__name__, e))
@@ -306,12 +442,20 @@ if __name__ == "__main__":
     main()
 
 # KNOWN GAPS -- verified, not closed by these rules:
-#   * a file the command CREATES is untracked, and `git restore` does not
-#     remove untracked files, so creations survive. Closing this needs
-#     `git clean -fd`, which also deletes legitimate command output.
-#   * a write into a gitignored path is neither staged nor restored, and
-#     `git clean -fd` would not remove it either (only `-x` would, which
-#     also destroys .env, .venv and node_modules).
-#   * a backgrounded command returns before it writes, so the restore runs
-#     against a work tree the command has not touched yet.
+#   * a write into a gitignored path is neither staged nor restored, and is
+#     excluded from the untracked sweep too. Reaching it would need
+#     `git clean -fdx`, which also destroys .env, .venv and node_modules.
+#   * a backgrounded command returns before it writes, so step 2 runs against
+#     a work tree the command has not touched yet.
 #   * a write outside the repo is out of scope by rule (0).
+#   * a file created inside a directory the command also created is removed,
+#     but the directory is left behind, by choice: only files are reverted.
+#   * step 1 `git add -A` flattens a partial `git add -p` selection. Accepted:
+#     whatever is written is meant for the next commit, and anything that must
+#     never be committed belongs in .gitignore.
+#   * the lock only serializes writers that take it, which is Bash commands.
+#     A write that does not pass through this hook -- the Edit and Write tools,
+#     an editor, any other process -- landing between step 1 and step 2 is
+#     read as this command's output: a modification is reverted and a new file
+#     is removed. Verified as C1 and C2. Closing it means taking the same lock
+#     from a PreToolUse/PostToolUse hook on Edit and Write.
