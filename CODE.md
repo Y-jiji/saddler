@@ -1,4 +1,4 @@
-To write code, present code skeleton listing for sanctioning; Only after user sanctioning, you code; Use nested bullet list, 1st level file/module paths, 2st level signatures + SHAME(...) tag when syntax rules match; Do not attach reasoning / prose / comments / logic description; If user asks, use a dedicated turn to reply
+To write production code, present code skeleton listing for sanctioning; Only after user sanctioning, you code; Use nested bullet list, 1st level file/module paths, 2st level signatures + SHAME(...) tag when syntax rules match; Do not attach reasoning / prose / comments / logic description; If user asks, use a dedicated turn to reply
 + **RUST**
     + full item removal: `-` mark before name-only item (`-mod module`), elide body; for partial update, apply following rules
     + `static` / `const` / `type` : present full
@@ -33,7 +33,7 @@ To write code, present code skeleton listing for sanctioning; Only after user sa
     + decorator : part of the signature, present the decorator line above the item it applies to
     + `import` / package module : inferrable from path, omit dedicated presentation
 
-To write a syntax item, use the following convention:
+To write a syntax item in production code, use the following convention:
 + **RUST**
     + file name : one word, or two word `flatcase`
     + `static` / `const` name : one word or two word `SNAKE_CAPITAL_CASE`
@@ -88,7 +88,7 @@ To write a syntax item, use the following convention:
     + `comment` : always use `"""..."""` as the first statement of the item, do not comment in function bodies; per block at most 60 words
     + `comment` : add literal tags in comments to functions more than 60 lines `SHAME(TALLFUNC)` / 120 chars `SHAME(WIDEFUNC)` / 6 args `SHAME(MANYARG)`
 
-To write a correctness test, follow listed conventions; test logic should be simpler than code; test is code, so it requires the same present + sanction process:
+To write a correctness test for production code, follow listed conventions; test logic should be simpler than code; test is code, so it requires the same present + sanction process:
 + **RUST**
     + place `#[cfg(test)] mod correct` parallel to the tested object
     + place `#[test] fn ...() {...}` inside `mod correct`
