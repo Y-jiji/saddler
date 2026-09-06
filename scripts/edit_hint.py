@@ -19,8 +19,8 @@ SIGNATURES = ("Read-only file system", "Device or resource busy",
               "Errno 30", "EROFS")
 
 HINT = ("Tracked files are read-only for Bash. Use Edit/Write to change one, "
-        "`git rm` to delete, `git mv` to rename. Only a non-compound "
-        "`git ...` command is exempt.")
+        "`git rm` to delete, `git mv` to rename. Use a non-compound "
+        "`git ...` command to exempt read-only barrier.")
 
 
 def flatten(value):
