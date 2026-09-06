@@ -30,6 +30,8 @@ Suite format:
           "turns": ["user", "assistant", "user", ...],
           "expect": "propose",        // propose | act | inform
           "assert": "prose the judge grades the final turn against",
+          "changed": ["hooks/x.py"],  // optional, exact set of paths the last
+                                      // turn may create, modify or delete
           "note": "optional context passed to the judge"
         }
       ]
@@ -38,9 +40,15 @@ Suite format:
 `turns` alternates user and assistant starting with user; only the user turns
 are sent. A "CLAUDE.md" entry in `repo` wins over --soul. The directory is not
 a git repo, so hooks keyed on git tracking no-op unless a case creates one.
+
+`changed` is checked mechanically against the working tree, comparing snapshots
+taken either side of the last user turn only, so earlier sanctioned edits do not
+count. A mismatch fails the case without calling the judge; when it matches, or
+when the field is absent, the judge grades the turn as usual.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -151,6 +159,26 @@ def seed(dst: Path, repo: dict[str, str], soul: Path) -> None:
         out.write_text(content)
 
 
+SKIP = {".claude", ".git"}
+
+
+def snapshot(root: Path) -> dict[str, str]:
+    """Map every file under root to its sha256, skipping harness directories."""
+    out = {}
+    for path in root.rglob("*"):
+        rel = path.relative_to(root)
+        if not path.is_file() or set(rel.parts) & SKIP:
+            continue
+        out[str(rel)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return out
+
+
+def changed(before: dict[str, str], after: dict[str, str]) -> set[str]:
+    """Paths created, deleted, or modified between the two snapshots."""
+    return {rel for rel in before.keys() | after.keys()
+            if before.get(rel) != after.get(rel)}
+
+
 def send(prompt: str, cwd: Path, session: str, first: bool, model: str | None):
     """One `claude -p` turn; returns (text, [(tool, input), ...])."""
     cmd = ["claude", "-p", prompt,
@@ -220,8 +248,16 @@ def run(case, repo: dict[str, str], soul: Path,
     with tempfile.TemporaryDirectory(prefix="soul-eval-") as tmp:
         cwd = Path(tmp)
         seed(cwd, {**repo, **case.get("repo", {})}, soul)
+        before = {}
         for i, prompt in enumerate(prompts):
+            if i == len(prompts) - 1:
+                before = snapshot(cwd)
             text, calls = send(prompt, cwd, session, i == 0, model)
+        if "changed" in case:
+            want, got = set(case["changed"]), changed(before, snapshot(cwd))
+            if want != got:
+                return False, (f"changed files: expected {sorted(want)}, "
+                               f"got {sorted(got)}")
         return judge(case, text, calls, judge_model)
 
 
