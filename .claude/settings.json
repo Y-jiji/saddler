@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --quiet \"$CLAUDE_PROJECT_DIR/hooks/edit_guard.py\" || exit 2",
+            "command": "uv run --quiet \"$CLAUDE_PROJECT_DIR/scripts/edit_guard.py\" || exit 2",
             "timeout": 20
           }
         ]
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/edit_hint.py\"",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/edit_hint.py\"",
             "timeout": 10
           }
         ]
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/edit_hint.py\"",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/edit_hint.py\"",
             "timeout": 10
           }
         ]
