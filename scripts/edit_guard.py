@@ -23,7 +23,8 @@ busy", sometimes while still reporting success.
 The command and the bind list are written to files and handed to bwrap by file
 descriptor rather than inlined, because the rewritten string is embedded in
 the harness's own `eval '<command>'` wrapper and a quote in a path or in the
-command would break it.
+command would break it. The original command is still shown, as `# ` comment
+lines above the bwrap line, so the transcript says what actually runs.
 """
 
 import json
@@ -159,8 +160,10 @@ def workdir(payload):
 def rewrite(command, files, cwd, payload):
     """The command line that runs `command` with `files` frozen.
 
-    Neither the command nor any path is interpolated into the string: both go
-    into files, and bwrap reads its arguments from fd 9.
+    Neither the command nor any path is executed from the string: both go
+    into files, and bwrap reads its arguments from fd 9. The command appears
+    only as leading comment lines, placed before bwrap so that anything the
+    harness appends to the end still runs.
     """
     d = workdir(payload)
     tag = payload.get("tool_use_id") or "cmd"
@@ -179,8 +182,9 @@ def rewrite(command, files, cwd, payload):
     with open(script, "w") as f:
         f.write(command)
 
-    # the only characters in the rewritten string are our own paths
-    return "bwrap --args 9 bash %s 9<%s" % (script, argfile)
+    # outside the comment, the only characters are our own paths
+    comment = "".join("# %s\n" % line for line in command.split("\n"))
+    return comment + "bwrap --args 9 bash %s 9<%s" % (script, argfile)
 
 
 def main():
