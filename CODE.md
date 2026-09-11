@@ -1,4 +1,4 @@
-To write production code, present code skeleton listing for sanctioning; Only after user sanctioning, you code; Use nested bullet list, 1st level file/module paths, 2st level signatures + SHAME(...) tag when syntax rules match; Do not attach reasoning / prose / comments / logic description; If user asks, use a dedicated turn to reply
+To write production code, present code skeleton listing for sanctioning; Only after user sanctioning, you code; Section header file/module paths, content is a bare code block of signatures + SHAME(...) tag when syntax rules match; Do not attach reasoning / prose / comments / logic description; If user asks, use a dedicated turn to reply
 + **RUST**
     + full item removal: `-` mark before name-only item (`-mod module`), elide body; for partial update, apply following rules
     + `static` / `const` / `type` : present full

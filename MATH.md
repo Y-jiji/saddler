@@ -9,9 +9,10 @@ To write a syntax item, use the following convention:
 + `structure` / `inductive` / `class` name : normal `CamelCase`
     + field name : one word, or two word `camelCase`
     + constructor name : one word, or two word `camelCase`
-+ `def` / `theorem` / `lemma` / `instance` name : one word, or two word `camelCase`
-+ `universe` variable : Unicode or Greek letter
++ `def ... : Type` : normal `CamelCase`
 + `namespace` / file : `CamelCase`
++ normal `def` / `theorem` / `lemma` / `instance` name : one word, or two word `camelCase`
++ `universe` variable : Unicode or Greek letter
 + `comment` : always use `/-- -/` above the item, `--` inline; per block at most 60 words
 + `comment` : add literal tags in comments to functions more than 60 lines `SHAME(TALLFUNC)` / 120 chars `SHAME(WIDEFUNC)` / 6 args `SHAME(MANYARG)`
 
