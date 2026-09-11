@@ -20,11 +20,10 @@ a simple git command (is_simple_git) -- git rewrites tracked files on purpose,
 and a bind mount makes checkout and restore fail with "Device or resource
 busy", sometimes while still reporting success.
 
-The command and the bind list are written to files and handed to bwrap by file
-descriptor rather than inlined, because the rewritten string is embedded in
-the harness's own `eval '<command>'` wrapper and a quote in a path or in the
-command would break it. The original command is still shown, as `# ` comment
-lines above the bwrap line, so the transcript says what actually runs.
+The command is inlined as `bash -c <word>`, quoted into a single shell word, so
+the transcript and the auto mode classifier see exactly what runs. The bind
+list is written to a file and handed to bwrap by file descriptor, since it can
+run to thousands of arguments.
 """
 
 import json
@@ -157,34 +156,36 @@ def workdir(payload):
     return d
 
 
+def _quote(s):
+    """`s` as one shell word, kept readable: '...' unless it holds a quote."""
+    if "'" not in s:
+        return "'%s'" % s
+    return "$'%s'" % s.replace("\\", "\\\\").replace("'", "\\'")
+
+
 def rewrite(command, files, cwd, payload):
     """The command line that runs `command` with `files` frozen.
 
-    Neither the command nor any path is executed from the string: both go
-    into files, and bwrap reads its arguments from fd 9. The command appears
-    only as leading comment lines, placed before bwrap so that anything the
-    harness appends to the end still runs.
+    The command sits on bwrap's argv as `bash -c <word>`; the binds go into a
+    file that bwrap reads from fd 9, so no path is spliced into the string.
     """
     d = workdir(payload)
     tag = payload.get("tool_use_id") or "cmd"
     tag = "".join(c if c.isalnum() or c in "-_" else "_" for c in tag)
 
     # bwrap --args carries OPTIONS only; the command has to sit on the real
-    # argv, so the script path goes there and the binds go in the file
+    # argv, and the binds go in the file
     args = ["--dev-bind", "/", "/", "--chdir", cwd]
     for path in files:
         args += ["--ro-bind", path, path]
 
     argfile = os.path.join(d, tag + ".args")
-    script = os.path.join(d, tag + ".sh")
     with open(argfile, "wb") as f:
         f.write("\0".join(args).encode())
-    with open(script, "w") as f:
-        f.write(command)
 
-    # outside the comment, the only characters are our own paths
-    comment = "".join("# %s\n" % line for line in command.split("\n"))
-    return comment + "bwrap --args 9 bash %s 9<%s" % (script, argfile)
+    # $0 is set so the command's own $1, $2... are not shifted
+    return "bwrap --args 9 bash -c %s edit-guard 9<%s" % (_quote(command),
+                                                          argfile)
 
 
 def main():
