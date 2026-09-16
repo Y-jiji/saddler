@@ -2,23 +2,30 @@
 # requires-python = ">=3.11"
 # dependencies = ["tree-sitter", "tree-sitter-bash"]
 # ///
-"""PreToolUse hook for Bash: run the command with git-tracked files read-only.
+"""PreToolUse hook for Bash: run the command with only gitignored paths and
+/tmp writable.
 
-Every tracked file is bind-mounted read-only into a private mount namespace,
-so the kernel refuses to modify or delete it however the command reaches it --
-a redirect, sed -i, another interpreter, a script, a background child. The
-repository directory stays writable, so creating files and directories is
-allowed and cargo run, npm install and venv creation keep working.
+The whole filesystem is bind-mounted read-only into a private mount namespace,
+then /tmp and every existing gitignored path in the repository are bound
+writable again, so the kernel refuses any other write however the command
+reaches it -- a redirect, sed -i, another interpreter, a script, a background
+child. Tracked files, untracked files that are not ignored, and .git are all
+read-only. A tracked file inside an ignored directory is bound read-only again.
+
+An ignored path that does not exist yet cannot be created unless its parent is
+writable: a first `cargo build` cannot create target/.
 
 The repository is found from CLAUDE_PROJECT_DIR, the directory the session
 started in, so a `cd` cannot move the guard to another repository or out of
-one. The command still runs in the directory it expects, via --chdir.
+one. The command still runs in the directory it expects, via --chdir. Outside
+a git repository only /tmp is writable.
 
-The hook rewrites the command through hookSpecificOutput.updatedInput. Two
-commands are passed through untouched: anything outside a git repository, and
-a simple git command (is_simple_git) -- git rewrites tracked files on purpose,
-and a bind mount makes checkout and restore fail with "Device or resource
-busy", sometimes while still reporting success.
+A simple git command (is_simple_git) gets the whole repository writable instead
+-- git rewrites tracked files and .git on purpose, and a read-only bind makes
+checkout and restore fail, sometimes while still reporting success. Everything
+outside the repository and /tmp stays read-only for it too.
+
+The hook rewrites the command through hookSpecificOutput.updatedInput.
 
 The command is inlined as `bash -c <word>`, quoted into a single shell word, so
 the transcript and the auto mode classifier see exactly what runs. The bind
@@ -36,7 +43,7 @@ import tree_sitter_bash
 from tree_sitter import Language, Parser
 
 # bwrap accepts 9000 arguments; each bind spends 3. Setup also grows faster
-# than linearly: 19 ms at 146 tracked files, 181 ms at 636, 915 ms at 1500.
+# than linearly: 19 ms at 146 binds, 181 ms at 636, 915 ms at 1500.
 MAX_BINDS = 2900
 
 # git options that let git run a command of its own choosing
@@ -125,6 +132,27 @@ def repo_root(cwd):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+def ignored_paths(root):
+    """Existing gitignored paths, an ignored directory given once as a whole.
+
+    Symlinks are skipped: binding one resolves to its target, which may sit
+    outside the repository. Submodules are not searched, so their work trees
+    stay read-only.
+    """
+    r = subprocess.run(
+        ["git", "-C", root, "ls-files", "-z", "--others", "--ignored",
+         "--exclude-standard", "--directory"],
+        capture_output=True, text=True)
+    out = []
+    for name in r.stdout.split("\0"):
+        if not name:
+            continue
+        path = os.path.join(root, name.rstrip("/"))
+        if os.path.exists(path) and not os.path.islink(path):
+            out.append(path)
+    return out
+
+
 def tracked_files(root):
     """Existing regular tracked files, submodules included.
 
@@ -163,8 +191,33 @@ def _quote(s):
     return "$'%s'" % s.replace("\\", "\\\\").replace("'", "\\'")
 
 
-def rewrite(command, files, cwd, payload):
-    """The command line that runs `command` with `files` frozen.
+def mounts(root, git):
+    """bwrap binds: all read-only, then /tmp and the allowed repo paths writable.
+
+    Later binds cover earlier ones, so the order is the policy. `root` is None
+    outside a git repository; `git` makes the whole repository writable.
+    """
+    args = ["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
+            "--proc", "/proc", "--bind", "/tmp", "/tmp"]
+    if root is None:
+        return args
+    if git:
+        return args + ["--bind", root, root]
+
+    # read-only again, in case the repository sits under /tmp
+    args += ["--ro-bind", root, root]
+    ignored = ignored_paths(root)
+    for path in ignored:
+        args += ["--bind", path, path]
+    dirs = tuple(p + os.sep for p in ignored if os.path.isdir(p))
+    for path in tracked_files(root):
+        if path.startswith(dirs):
+            args += ["--ro-bind", path, path]
+    return args
+
+
+def rewrite(command, binds, cwd, payload):
+    """The command line that runs `command` under `binds`.
 
     The command sits on bwrap's argv as `bash -c <word>`; the binds go into a
     file that bwrap reads from fd 9, so no path is spliced into the string.
@@ -175,9 +228,7 @@ def rewrite(command, files, cwd, payload):
 
     # bwrap --args carries OPTIONS only; the command has to sit on the real
     # argv, and the binds go in the file
-    args = ["--dev-bind", "/", "/", "--chdir", cwd]
-    for path in files:
-        args += ["--ro-bind", path, path]
+    args = binds + ["--chdir", cwd]
 
     argfile = os.path.join(d, tag + ".args")
     with open(argfile, "wb") as f:
@@ -203,20 +254,17 @@ def main():
     # a different repository -- or out of one.
     anchor = os.environ.get("CLAUDE_PROJECT_DIR") or cwd
     root = repo_root(anchor)
-    if root is None or is_simple_git(command):
-        return                                    # runs unchanged
-
-    files = tracked_files(root)
-    if len(files) > MAX_BINDS:
+    binds = mounts(root, is_simple_git(command))
+    if len(binds) // 3 > MAX_BINDS:
         json.dump({
             "systemMessage": "edit-guard: repository too large to guard",
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason":
-                    "%d tracked files exceeds the %d bwrap can bind, so this "
-                    "command cannot be run with tracked files frozen. It was "
-                    "not run." % (len(files), MAX_BINDS)},
+                    "%d paths to bind exceeds the %d bwrap can take, so this "
+                    "command cannot be run guarded. It was not run."
+                    % (len(binds) // 3, MAX_BINDS)},
         }, sys.stdout)
         return
 
@@ -224,7 +272,7 @@ def main():
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "updatedInput": {**(payload.get("tool_input") or {}),
-                             "command": rewrite(command, files, cwd, payload)},
+                             "command": rewrite(command, binds, cwd, payload)},
         },
     }, sys.stdout)
 
