@@ -3,14 +3,16 @@
 # dependencies = ["tree-sitter", "tree-sitter-bash"]
 # ///
 """PreToolUse hook for Bash: run the command with only gitignored paths, /tmp
-and ~/.cache writable.
+and dot entries in the home directory writable.
 
 The whole filesystem is bind-mounted read-only into a private mount namespace,
-then /tmp, ~/.cache and every existing gitignored path in the repository are
-bound writable again, so the kernel refuses any other write however the
-command reaches it -- a redirect, sed -i, another interpreter, a script, a
-background child. Tracked files, untracked files that are not ignored, and .git are all
-read-only. A tracked file inside an ignored directory is bound read-only again.
+then /tmp, every existing dot entry in ~ except those in HOME_DENY, and every
+existing gitignored path in the repository are bound writable again, so the
+kernel refuses any other write however the command reaches it -- a redirect,
+sed -i, another interpreter, a script, a background child. Tracked files,
+untracked files that are not ignored, and .git are all read-only. A tracked
+file inside an ignored directory is bound read-only again. A dot entry that
+does not exist yet cannot be created, since ~ itself is read-only.
 
 An ignored path that does not exist yet cannot be created unless its parent is
 writable: a first `cargo build` cannot create target/.
@@ -18,12 +20,13 @@ writable: a first `cargo build` cannot create target/.
 The repository is found from CLAUDE_PROJECT_DIR, the directory the session
 started in, so a `cd` cannot move the guard to another repository or out of
 one. The command still runs in the directory it expects, via --chdir. Outside
-a git repository only /tmp and ~/.cache are writable.
+a git repository only /tmp and the home dot entries are writable.
 
 A simple git command (is_simple_git) gets the whole repository writable instead
 -- git rewrites tracked files and .git on purpose, and a read-only bind makes
 checkout and restore fail, sometimes while still reporting success. Everything
-outside the repository, /tmp and ~/.cache stays read-only for it too.
+outside the repository, /tmp and the home dot entries stays read-only for it
+too.
 
 The hook rewrites the command through hookSpecificOutput.updatedInput.
 
@@ -45,6 +48,10 @@ from tree_sitter import Language, Parser
 # bwrap accepts 9000 arguments; each bind spends 3. Setup also grows faster
 # than linearly: 19 ms at 146 binds, 181 ms at 636, 915 ms at 1500.
 MAX_BINDS = 2900
+
+# dot entries in ~ that stay read-only: they configure code run outside the
+# sandbox
+HOME_DENY = (".claude", ".bashrc", ".profile")
 
 # git options that let git run a command of its own choosing
 GIT_EXEC_OPTS = ("-c", "--config-env", "--exec-path")
@@ -192,18 +199,21 @@ def _quote(s):
 
 
 def mounts(root, git):
-    """bwrap binds: all read-only, then /tmp, ~/.cache and the allowed repo
-    paths writable.
+    """bwrap binds: all read-only, then /tmp, the home dot entries and the
+    allowed repo paths writable.
 
     Later binds cover earlier ones, so the order is the policy. `root` is None
     outside a git repository; `git` makes the whole repository writable.
-    ~/.cache is bound only if it exists, since bwrap fails on a missing source.
+    Only existing dot entries are bound, since bwrap fails on a missing source,
+    and symlinks are skipped, since binding one resolves to its target.
     """
     args = ["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
             "--proc", "/proc", "--bind", "/tmp", "/tmp"]
-    cache = os.path.expanduser("~/.cache")
-    if os.path.isdir(cache):
-        args += ["--bind", cache, cache]
+    home = os.path.expanduser("~")
+    for entry in sorted(os.scandir(home), key=lambda e: e.name):
+        if (entry.name.startswith(".") and entry.name not in HOME_DENY
+                and not entry.is_symlink()):
+            args += ["--bind", entry.path, entry.path]
     if root is None:
         return args
     if git:
