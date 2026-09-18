@@ -14,6 +14,9 @@ untracked files that are not ignored, and .git are all read-only. A tracked
 file inside an ignored directory is bound read-only again. A dot entry that
 does not exist yet cannot be created, since ~ itself is read-only.
 
+Research folders directly under the repository root, named by WAIVED (#001,
+#002, ...), are bound writable last, tracked files inside them included.
+
 An ignored path that does not exist yet cannot be created unless its parent is
 writable: a first `cargo build` cannot create target/.
 
@@ -38,6 +41,7 @@ run to thousands of arguments.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -52,6 +56,9 @@ MAX_BINDS = 2900
 # dot entries in ~ that stay read-only: they configure code run outside the
 # sandbox
 HOME_DENY = (".claude", ".bashrc", ".profile")
+
+# research folders directly under the repository root that stay writable
+WAIVED = re.compile(r"#\d{3}", re.ASCII)
 
 # git options that let git run a command of its own choosing
 GIT_EXEC_OPTS = ("-c", "--config-env", "--exec-path")
@@ -200,12 +207,13 @@ def _quote(s):
 
 def mounts(root, git):
     """bwrap binds: all read-only, then /tmp, the home dot entries and the
-    allowed repo paths writable.
+    allowed repo paths writable, the WAIVED folders last.
 
     Later binds cover earlier ones, so the order is the policy. `root` is None
     outside a git repository; `git` makes the whole repository writable.
-    Only existing dot entries are bound, since bwrap fails on a missing source,
-    and symlinks are skipped, since binding one resolves to its target.
+    Only existing dot entries and WAIVED folders are bound, since bwrap fails
+    on a missing source, and symlinks are skipped, since binding one resolves
+    to its target.
     """
     args = ["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
             "--proc", "/proc", "--bind", "/tmp", "/tmp"]
@@ -228,6 +236,10 @@ def mounts(root, git):
     for path in tracked_files(root):
         if path.startswith(dirs):
             args += ["--ro-bind", path, path]
+    for entry in sorted(os.scandir(root), key=lambda e: e.name):
+        if (WAIVED.fullmatch(entry.name) and entry.is_dir()
+                and not entry.is_symlink()):
+            args += ["--bind", entry.path, entry.path]
     return args
 
 
