@@ -23,8 +23,9 @@ A research / evaluation folder should be organized in the following way:
     | ---     | ---   | ---    |
     | ...     | ...   | ...    |
     ```
-  - Figures: figures produced by current run in the format of one command + one image
-    `Script` should be a simple bash / python script that only takes a list of file names as content, and be a PURE FUNCTION of these file contents. All inputs must be available as some `./#001/<FILE NAME>`, and 1MB maximum.  
+  - Figures: (one command + one image) * n
+    The command prefix only takes file names as arguments and must be a PURE FUNCTION of these files.  
+    All inputs must be available as some `./#001/<FILE NAME>`, and 1MB maximum. 
     ```markdown
     `uv run some_figure.py <INPUT1> <INPUT2> ...`
     ![#](some_figure.svg)
