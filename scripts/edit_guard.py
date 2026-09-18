@@ -27,9 +27,10 @@ a git repository only /tmp and the home dot entries are writable.
 
 A simple git command (is_simple_git) gets the whole repository writable instead
 -- git rewrites tracked files and .git on purpose, and a read-only bind makes
-checkout and restore fail, sometimes while still reporting success. Everything
-outside the repository, /tmp and the home dot entries stays read-only for it
-too.
+checkout and restore fail, sometimes while still reporting success. A simple
+mkdir command (is_simple_mkdir) gets the same, so a new folder, such as the
+next #NNN, can be created anywhere in the repository. Everything outside the
+repository, /tmp and the home dot entries stays read-only for them too.
 
 The hook rewrites the command through hookSpecificOutput.updatedInput.
 
@@ -101,43 +102,64 @@ def _resolved(node, src):
     return all(_resolved(c, src) for c in node.children)
 
 
-def is_simple_git(command):
-    """True when the whole command line is one plain `git ARGS` invocation.
+def simple_argv(command):
+    """The literal argv when the whole command line is one plain command,
+    else None.
 
     Requires valid bash, a single command, no pipe, redirect, background,
-    separator, subshell, substitution or heredoc, no leading VAR=value, every
-    word a literal, the program `git`, and no option that lets git execute
-    something of its own.
-
-    `git commit -m 'a message'` qualifies. `ls && git checkout main`,
-    `git log > out.txt`, `git -c core.pager='rm x' log`, `git $CMD` do not.
+    separator, subshell, substitution or heredoc, no leading VAR=value and
+    every word a literal.
     """
     src = command.encode()
     root = _PARSER.parse(src).root_node
     if root.has_error:
-        return False
+        return None
     if any(n.type in COMPOUND for n in _walk(root)):
-        return False
+        return None
 
     bodies = [c for c in root.named_children if c.type != "comment"]
     if len(bodies) != 1 or bodies[0].type != "command":
-        return False
+        return None
 
     argv = []
     for child in bodies[0].named_children:
         if child.type == "variable_assignment":
-            return False
+            return None
         if child.type == "command_name":
             child = child.named_children[0] if child.named_children else child
         if not _resolved(child, src):
-            return False
+            return None
         argv.append(_literal(child, src))
+    return argv or None
 
+
+def is_simple_git(command):
+    """True when the whole command line is one plain `git ARGS` invocation.
+
+    Requires simple_argv, the program `git`, and no option that lets git
+    execute something of its own.
+
+    `git commit -m 'a message'` qualifies. `ls && git checkout main`,
+    `git log > out.txt`, `git -c core.pager='rm x' log`, `git $CMD` do not.
+    """
+    argv = simple_argv(command)
     if not argv or os.path.basename(argv[0]) != "git":
         return False
     return not any(a in GIT_EXEC_OPTS
                    or a.startswith(tuple(o + "=" for o in GIT_EXEC_OPTS))
                    for a in argv[1:])
+
+
+def is_simple_mkdir(command):
+    """True when the whole command line is one plain `mkdir ARGS` invocation.
+
+    Requires simple_argv and the program exactly `mkdir`, with no path, so a
+    script named mkdir in a writable folder does not qualify.
+
+    `mkdir -p '#004'` qualifies. `mkdir x && cd x`, `./mkdir x` do not.
+    """
+    argv = simple_argv(command)
+    return bool(argv) and argv[0] == "mkdir"
 
 
 def repo_root(cwd):
@@ -205,12 +227,12 @@ def _quote(s):
     return "$'%s'" % s.replace("\\", "\\\\").replace("'", "\\'")
 
 
-def mounts(root, git):
+def mounts(root, whole):
     """bwrap binds: all read-only, then /tmp, the home dot entries and the
     allowed repo paths writable, the WAIVED folders last.
 
     Later binds cover earlier ones, so the order is the policy. `root` is None
-    outside a git repository; `git` makes the whole repository writable.
+    outside a git repository; `whole` makes the whole repository writable.
     Only existing dot entries and WAIVED folders are bound, since bwrap fails
     on a missing source, and symlinks are skipped, since binding one resolves
     to its target.
@@ -224,7 +246,7 @@ def mounts(root, git):
             args += ["--bind", entry.path, entry.path]
     if root is None:
         return args
-    if git:
+    if whole:
         return args + ["--bind", root, root]
 
     # read-only again, in case the repository sits under /tmp
@@ -281,7 +303,7 @@ def main():
     # a different repository -- or out of one.
     anchor = os.environ.get("CLAUDE_PROJECT_DIR") or cwd
     root = repo_root(anchor)
-    binds = mounts(root, is_simple_git(command))
+    binds = mounts(root, is_simple_git(command) or is_simple_mkdir(command))
     if len(binds) // 3 > MAX_BINDS:
         json.dump({
             "systemMessage": "edit-guard: repository too large to guard",
