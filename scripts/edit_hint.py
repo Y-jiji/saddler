@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """PostToolUse hook for Bash: name the right tool after edit_guard refuses a write.
 
-edit_guard.py freezes git-tracked files with a read-only bind mount, so a
-command that writes one fails with a raw kernel error and no indication of
-what to do instead. This turns that error into a one-line hint.
+edit_guard.py freezes every .git and .claude in the repository, and
+everything outside it but /tmp and the home dot entries not in its HOME_DENY,
+with a read-only bind mount, so a command that writes there fails with a raw
+kernel error and no indication of what to do instead. This turns that error
+into a one-line hint.
 
 Both PostToolUse and PostToolUseFailure are handled: a refused write does not
 always make the command exit non-zero -- `perl -e 'unlink'` returns 0 while
@@ -18,9 +20,11 @@ import sys
 SIGNATURES = ("Read-only file system", "Device or resource busy",
               "Errno 30", "EROFS")
 
-HINT = ("Tracked files are read-only for Bash. Use Edit/Write to change one, "
-        "`git rm` to delete, `git mv` to rename. Use a non-compound "
-        "`git ...` or `mkdir ...` command to exempt read-only barrier.")
+HINT = ("Bash can write only the repo except every `.git` and `.claude` in it, "
+        "`/tmp` and dot entries in `~` except `.claude`, `.claude.json`, "
+        "`.gitconfig`, `.ssh`, `.config` and shell startup files. Use "
+        "Edit/Write to change a file in the project, a non-compound "
+        "`git ...` command to change `.git`.")
 
 
 def flatten(value):

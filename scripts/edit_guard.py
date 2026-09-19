@@ -2,47 +2,39 @@
 # requires-python = ">=3.11"
 # dependencies = ["tree-sitter", "tree-sitter-bash"]
 # ///
-"""PreToolUse hook for Bash: run the command with only gitignored paths, /tmp
-and dot entries in the home directory writable.
+"""PreToolUse hook for Bash: run the command with only the repository except
+every .git and .claude in it, /tmp and dot entries in the home directory
+writable.
 
 The whole filesystem is bind-mounted read-only into a private mount namespace,
-then /tmp, every existing dot entry in ~ except those in HOME_DENY, and every
-existing gitignored path in the repository are bound writable again, so the
+then /tmp, every existing dot entry in ~ except those in HOME_DENY, and the
+repository are bound writable again, and every entry named in REPO_DENY inside
+the repository, nested ones included, is bound read-only once more, so the
 kernel refuses any other write however the command reaches it -- a redirect,
-sed -i, another interpreter, a script, a background child. Tracked files,
-untracked files that are not ignored, and .git are all read-only. A tracked
-file inside an ignored directory is bound read-only again. A dot entry that
-does not exist yet cannot be created, since ~ itself is read-only.
-
-Research folders directly under the repository root, named by WAIVED (#001,
-#002, ...), are bound writable last, tracked files inside them included.
-
-An ignored path that does not exist yet cannot be created unless its parent is
-writable: a first `cargo build` cannot create target/.
+sed -i, another interpreter, a script, a background child. A dot entry in ~
+that does not exist yet cannot be created, since ~ itself is read-only. A
+REPO_DENY entry that does not exist yet can be created, since the repository
+is writable.
 
 The repository is found from CLAUDE_PROJECT_DIR, the directory the session
 started in, so a `cd` cannot move the guard to another repository or out of
 one. The command still runs in the directory it expects, via --chdir. Outside
 a git repository only /tmp and the home dot entries are writable.
 
-A simple git command (is_simple_git) gets the whole repository writable instead
--- git rewrites tracked files and .git on purpose, and a read-only bind makes
-checkout and restore fail, sometimes while still reporting success. A simple
-mkdir command (is_simple_mkdir) gets the same, so a new folder, such as the
-next #NNN, can be created anywhere in the repository. Everything outside the
-repository, /tmp and the home dot entries stays read-only for them too.
+A simple git command (is_simple_git) is not rewritten and runs unguarded --
+git rewrites tracked files and .git on purpose, and a read-only bind makes
+checkout and restore fail, sometimes while still reporting success.
 
 The hook rewrites the command through hookSpecificOutput.updatedInput.
 
 The command is inlined as `bash -c <word>`, quoted into a single shell word, so
 the transcript and the auto mode classifier see exactly what runs. The bind
-list is written to a file and handed to bwrap by file descriptor, since it can
-run to thousands of arguments.
+list is written to a file and handed to bwrap by file descriptor, so no path
+is spliced into the command.
 """
 
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -50,16 +42,15 @@ import tempfile
 import tree_sitter_bash
 from tree_sitter import Language, Parser
 
-# bwrap accepts 9000 arguments; each bind spends 3. Setup also grows faster
-# than linearly: 19 ms at 146 binds, 181 ms at 636, 915 ms at 1500.
-MAX_BINDS = 2900
-
 # dot entries in ~ that stay read-only: they configure code run outside the
-# sandbox
-HOME_DENY = (".claude", ".bashrc", ".profile")
+# sandbox -- Claude Code, git, ssh, programs under ~/.config and the shells
+HOME_DENY = (".claude", ".claude.json", ".gitconfig", ".ssh", ".config",
+             ".bashrc", ".bash_profile", ".bash_logout", ".bash_modules",
+             ".profile", ".zshrc")
 
-# research folders directly under the repository root that stay writable
-WAIVED = re.compile(r"#\d{3}", re.ASCII)
+# entries anywhere in the repository that stay read-only: .git holds hooks and
+# config git runs code from, .claude configures code run outside the sandbox
+REPO_DENY = (".git", ".claude")
 
 # git options that let git run a command of its own choosing
 GIT_EXEC_OPTS = ("-c", "--config-env", "--exec-path")
@@ -150,66 +141,26 @@ def is_simple_git(command):
                    for a in argv[1:])
 
 
-def is_simple_mkdir(command):
-    """True when the whole command line is one plain `mkdir ARGS` invocation.
-
-    Requires simple_argv and the program exactly `mkdir`, with no path, so a
-    script named mkdir in a writable folder does not qualify.
-
-    `mkdir -p '#004'` qualifies. `mkdir x && cd x`, `./mkdir x` do not.
-    """
-    argv = simple_argv(command)
-    return bool(argv) and argv[0] == "mkdir"
-
-
 def repo_root(cwd):
     r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
                        capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else None
 
 
-def ignored_paths(root):
-    """Existing gitignored paths, an ignored directory given once as a whole.
+def denied_paths(root):
+    """Every existing REPO_DENY entry in the repository, nested ones included.
 
-    Symlinks are skipped: binding one resolves to its target, which may sit
-    outside the repository. Submodules are not searched, so their work trees
-    stay read-only.
+    The walk neither descends into a REPO_DENY entry, since its bind covers
+    everything below, nor follows a symlink. Symlinks are skipped: binding one
+    resolves to its target.
     """
-    r = subprocess.run(
-        ["git", "-C", root, "ls-files", "-z", "--others", "--ignored",
-         "--exclude-standard", "--directory"],
-        capture_output=True, text=True)
     out = []
-    for name in r.stdout.split("\0"):
-        if not name:
-            continue
-        path = os.path.join(root, name.rstrip("/"))
-        if os.path.exists(path) and not os.path.islink(path):
-            out.append(path)
-    return out
-
-
-def tracked_files(root):
-    """Existing regular tracked files, submodules included.
-
-    --recurse-submodules descends to any depth once a submodule is
-    initialized, and reports paths relative to the superproject. An
-    uninitialized submodule contributes nothing, which is correct: its files
-    are not on disk to freeze.
-
-    Symlinks are skipped: binding one resolves to its target, which may sit
-    outside the repository.
-    """
-    r = subprocess.run(
-        ["git", "-C", root, "ls-files", "-z", "--recurse-submodules"],
-        capture_output=True, text=True)
-    out = []
-    for name in r.stdout.split("\0"):
-        if not name:
-            continue
-        path = os.path.join(root, name)
-        if os.path.isfile(path) and not os.path.islink(path):
-            out.append(path)
+    for top, dirs, files in os.walk(root):
+        for name in REPO_DENY:
+            path = os.path.join(top, name)
+            if (name in dirs or name in files) and not os.path.islink(path):
+                out.append(path)
+        dirs[:] = sorted(d for d in dirs if d not in REPO_DENY)
     return out
 
 
@@ -227,15 +178,14 @@ def _quote(s):
     return "$'%s'" % s.replace("\\", "\\\\").replace("'", "\\'")
 
 
-def mounts(root, whole):
+def mounts(root):
     """bwrap binds: all read-only, then /tmp, the home dot entries and the
-    allowed repo paths writable, the WAIVED folders last.
+    repository writable, the REPO_DENY entries read-only last.
 
     Later binds cover earlier ones, so the order is the policy. `root` is None
-    outside a git repository; `whole` makes the whole repository writable.
-    Only existing dot entries and WAIVED folders are bound, since bwrap fails
-    on a missing source, and symlinks are skipped, since binding one resolves
-    to its target.
+    outside a git repository. Only existing dot entries and REPO_DENY entries
+    are bound, since bwrap fails on a missing source, and symlinks are
+    skipped, since binding one resolves to its target.
     """
     args = ["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
             "--proc", "/proc", "--bind", "/tmp", "/tmp"]
@@ -246,22 +196,9 @@ def mounts(root, whole):
             args += ["--bind", entry.path, entry.path]
     if root is None:
         return args
-    if whole:
-        return args + ["--bind", root, root]
-
-    # read-only again, in case the repository sits under /tmp
-    args += ["--ro-bind", root, root]
-    ignored = ignored_paths(root)
-    for path in ignored:
-        args += ["--bind", path, path]
-    dirs = tuple(p + os.sep for p in ignored if os.path.isdir(p))
-    for path in tracked_files(root):
-        if path.startswith(dirs):
-            args += ["--ro-bind", path, path]
-    for entry in sorted(os.scandir(root), key=lambda e: e.name):
-        if (WAIVED.fullmatch(entry.name) and entry.is_dir()
-                and not entry.is_symlink()):
-            args += ["--bind", entry.path, entry.path]
+    args += ["--bind", root, root]
+    for path in denied_paths(root):
+        args += ["--ro-bind", path, path]
     return args
 
 
@@ -296,6 +233,8 @@ def main():
     if (payload.get("tool_name") or "") != "Bash":
         return
     command = (payload.get("tool_input") or {}).get("command", "")
+    if is_simple_git(command):
+        return
     cwd = payload.get("cwd") or os.getcwd()
 
     # The repository is anchored to the directory the session started in, not
@@ -303,19 +242,7 @@ def main():
     # a different repository -- or out of one.
     anchor = os.environ.get("CLAUDE_PROJECT_DIR") or cwd
     root = repo_root(anchor)
-    binds = mounts(root, is_simple_git(command) or is_simple_mkdir(command))
-    if len(binds) // 3 > MAX_BINDS:
-        json.dump({
-            "systemMessage": "edit-guard: repository too large to guard",
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason":
-                    "%d paths to bind exceeds the %d bwrap can take, so this "
-                    "command cannot be run guarded. It was not run."
-                    % (len(binds) // 3, MAX_BINDS)},
-        }, sys.stdout)
-        return
+    binds = mounts(root)
 
     json.dump({
         "hookSpecificOutput": {
