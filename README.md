@@ -6,7 +6,12 @@
 
 To install: `bash install.sh`
 
-To invoke: run claude code in project folder; in claude code, type `/saddler`
+To invoke: run claude code in project folder; in claude code, type one of
+- `/fileguard`: sandbox Bash and guard Write, Edit and NotebookEdit
+- `/codeguide`: software engineering instructions
+- `/mathguide`: formally verified (Lean) math project instructions
+- `/evalguide`: system evaluation repository layout
+- `/tokenline`: status line `<TOKEN COUNT> @ <FOLDER> (<BRANCH>)`
 
 # Design
 
