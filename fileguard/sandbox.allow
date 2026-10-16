@@ -1,0 +1,24 @@
+# Global registry for sandbox.sh: the paths visible inside the sandbox
+# besides the project, library and PATH directories. One `ro PATH` or
+# `rw PATH` per line, ~ expanded, missing paths skipped.
+ro /usr
+ro /etc
+ro /opt
+ro /sys
+ro /var
+ro ~/.gitconfig
+ro ~/.config/git
+ro ~/.npmrc
+ro ~/.claude/shell-snapshots
+ro ~/.claude/statusline.sh
+rw /tmp
+rw ~/.cache
+rw ~/.cargo
+rw ~/.rustup
+rw ~/.npm
+rw ~/.nvm
+rw ~/.bun
+rw ~/.local
+rw ~/.gradle
+rw ~/.m2
+rw ~/.elan

@@ -1,47 +1,24 @@
 {
   "worktree": { "bgIsolation": "none" },
   "hooks": {
-    "PreToolUse": [
+    "SessionStart": [
       {
-        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --quiet \"$CLAUDE_PROJECT_DIR/scripts/edit_guard.py\" || exit 2",
-            "timeout": 20
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/fileguard/sessionstartsandbox.py\"",
+            "timeout": 10
           }
         ]
-      },
+      }
+    ],
+    "PreToolUse": [
       {
         "matcher": "Write|Edit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/write_guard.py\" || exit 2",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/edit_hint.py\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PostToolUseFailure": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/edit_hint.py\"",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/fileguard/pretoolusewrite.py\" || exit 2",
             "timeout": 10
           }
         ]

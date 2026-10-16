@@ -3,8 +3,9 @@
 project.
 
 The project is the git repository CLAUDE_PROJECT_DIR sits in, or that
-directory itself outside a repository -- the anchor edit_guard.py uses, so a
-session cannot change another project through these tools either. The path is
+directory itself outside a repository -- the root sessionstartsandbox.py
+records for sandbox.sh, so a session cannot change another project through
+these tools either. The path is
 resolved with realpath first, so `..` cannot climb out and a symlink inside the
 project that points outside it is denied.
 """
