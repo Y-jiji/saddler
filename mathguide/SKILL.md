@@ -5,9 +5,10 @@ disable-model-invocation: true
 ---
 
 Do these in order:
-1. From this skill's directory, copy `MATH.md` unchanged to `<project>/MATH.md`.
-2. Add the line `@MATH.md` to `<project>/CLAUDE.md` unless it is already there, creating the file if it is missing.
+1. Read `MATH.md` in this skill's directory.
+2. Select the parts the project needs, and present the selection with AskUserQuestion for confirmation.
+3. Inline the selected lines into `<project>/CLAUDE.md`, creating it if missing and skipping lines already there.
 
-Why:
-- `MATH.md` holds the propose / sanction rules, then the Lean skeleton, naming and property-check conventions; the type check is the proof, so there is no test step.
-- `@MATH.md` in `CLAUDE.md` makes Claude Code load that file with it.
+Rules:
+- Copy exact lines from `MATH.md` and ONLY from it. Do not invent.
+- Do not copy the file into the project, do not add `@MATH.md`.
