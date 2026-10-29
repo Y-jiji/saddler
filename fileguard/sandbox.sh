@@ -36,6 +36,11 @@ while IFS= read -r d; do
 done < <({ ldconfig -p | sed -n 's|.* => \(.*\)/[^/]*$|\1|p'
            tr : '\n' <<<"${LD_LIBRARY_PATH:-}:$PATH"; } | sort -u)
 
+# [3b] every dot entry in ~, read-only, so tools find their config
+for e in "$HOME"/.[!.]*; do
+    if [ -e "$e" ] && [ ! -L "$e" ]; then args+=(--ro-bind "$e" "$e"); fi
+done
+
 # [4] the global registry, after [3] so its rw entries win; then $TMPDIR
 while read -r mode path; do
     path=${path/#\~/$HOME}

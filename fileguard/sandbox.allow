@@ -22,3 +22,4 @@ rw ~/.local
 rw ~/.gradle
 rw ~/.m2
 rw ~/.elan
+rw ~/.config/gcloud

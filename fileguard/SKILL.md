@@ -15,7 +15,7 @@ Do these in order:
 6. Tell the user to restart claude, then check in the new session: `echo x > .git/config` fails with `Read-only file system`, `ls /run` fails, and Write to a file outside the project is denied.
 
 Why:
-- `sandbox.sh` runs every shell Claude Code starts. In a session with a record, the shell runs in bwrap on an empty root holding only the host `/dev`, a fresh `/proc`, every library and `PATH` directory read-only, the entries of `~/.claude/sandbox/allow`, and the project writable except `config` and `hooks` under every `.git`, every `.git` that is a file and every `.claude`. `~/.ssh` is a private directory with the real entries read-only inside, so ssh can keep ControlMaster sockets. Without a record, the shell runs unsandboxed.
+- `sandbox.sh` runs every shell Claude Code starts. In a session with a record, the shell runs in bwrap on an empty root holding only the host `/dev`, a fresh `/proc`, every library and `PATH` directory read-only, every dot entry in `~` read-only, the entries of `~/.claude/sandbox/allow`, and the project writable except `config` and `hooks` under every `.git`, every `.git` that is a file and every `.claude`. `~/.ssh` is a private directory with the real entries read-only inside, so ssh can keep ControlMaster sockets. Without a record, the shell runs unsandboxed.
 - `sandbox.allow` is the global registry: one `ro PATH` or `rw PATH` per line, `~` expanded, missing paths skipped.
 - `sessionstartsandbox.py` records the project root, the git repo `$CLAUDE_PROJECT_DIR` sits in or that directory outside a repo, in `~/.claude/sandbox/<session_id>`.
 - `pretoolusewrite.py` denies Write, Edit and NotebookEdit on a path whose real path is outside the project.
