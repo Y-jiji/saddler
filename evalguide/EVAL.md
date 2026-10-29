@@ -21,6 +21,22 @@ In autonomous mode, you can work iteratively to reach the goal set by user:
 
 Inside `\d{4}/README.md` -- e.g. `0000/README.md`
 
+- Template for goal (only written by user, not you):
+    If it is not already in the file, provide a link to open such `README.md`
+    ```markdown
+    # Goal
+    ...
+    ```
+
+- Template for metrics (column names inside CSVs):
+    ```markdown
+    # Metrics
+    - `[METRIC NAME]`: ...
+    - `[METRIC NAME]`: ...
+    - `[METRIC NAME]`: ...
+    ```
+    `[METRIC NAME]` must be exactly the same vocabulary used inside runs and analysis. 
+
 - Template for figure section:
     ```markdown
     # Figure
