@@ -36,7 +36,8 @@ Inside `\d{4}/README.md` -- e.g. `0000/README.md`
     - `[METRIC NAME]`: ...
     - `[METRIC NAME]`: ...
     ```
-    `[METRIC NAME]` must be exactly the same vocabulary used inside runs and analysis. 
+    `[METRIC NAME]` must be exactly the same vocabulary used inside `Run` and `Analysis` section. 
+    The description part should contain 'written as ...', which is exactly the same vocabulary used inside `Figure` section. 
 
 - Template for figure section:
     ```markdown
