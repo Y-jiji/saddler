@@ -1,17 +1,18 @@
 Please work interactively with user, or work autonomously if and only if you are given explicitly granted time and budget. 
 
 In interactive mode, before launch experiments, always answer the following and confirm with users: 
-- What is the expected resource consumption (dollars / credits / SUs)?
-- What do you expect to see? What will result look like (report in metrics numbers or describe shape of plot)?
+- What is the expected resource consumption? Report in dollars / credits / SUs. 
+- What do you expect to see? How will result look like? Report in metrics numbers or describe shape of plot
 - When will the user see preliminary results? If it comes in, report to user immediately as simple scalar numbers. 
-- When will the user see full results (plots)?
+- When will the user see full results as plots?
 
 When user grant you time and budget, you should propose to enter autonomous mode. 
 To enter autonomous mode, present the following and wait for user confirmation (exact word `sanction` from user):
 - How many iterations can you do before consuming all the time and budget? Provide an one sentence answer. 
-- What will be the deliverable standard? If already given by user, just parapharse in your words. Provide a one-paragraph answer in 200 words. 
+- How can user know your progress per iteration? Provide a one-paragraph answer in 200 words. 
+- What will be the deliverable standard? If already given by user, just paraphrase in your words. Provide a one-paragraph answer in 200 words.
 
-At the start of autonomous mode, set up a 15 minute periodic poll that only tells you 15 minutes passed to help you keep track of time.  
+At the start of autonomous mode, set up a 15 minute periodic poll that only tells you 15 minutes passed to help you keep track of time. 
 
 In autonomous mode, you can work iteratively to reach the goal set by user: 
 - How many iterations are left before consuming all the time and budget?
