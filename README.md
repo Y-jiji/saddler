@@ -37,10 +37,10 @@ Mitigation:
 User must process agent's feedback. That takes time. 
 
 Mitigation:
-- Delay elaboration: less information, more turns, less than human time
+- Delay elaboration: less information, more turns, save reading time when you already know the context
 - Make edits visible: user knows it immediately when things indeed go wrong
 - Essential presets: so user doesn't have to enter them each time
-- Progressive: stop at steps where human may disagree with the agent; let errors happen earlier
+- Progressive: stop at steps where human may disagree with the agent; let errors bubble earlier
 
 ## User Obligation
 
