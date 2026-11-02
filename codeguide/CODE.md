@@ -11,18 +11,18 @@ Critical action:
 + a command **known** to be longer than 5 seconds
 + apply `Write/Edit` tool to edit production source code, i.e. git tracked code (don't apply `Bash`)
 
-To write production code, present code skeleton listing for sanctioning; Only after user sanctioning, you code; Section header file/module paths, content is a bare code block of signatures + SHAME(...) tag when syntax rules match; Do not attach reasoning / prose / comments / logic description; If user asks, use a dedicated turn to reply
-+ **RUST**
-    + full item removal: `-` mark before name-only item (`-mod module`), elide body; for partial update, apply following rules
+To write production code, present code skeleton listing for sanctioning. Only after user sanctioning, you code. By default, attach no reasoning, prose, comments, or logic description. If user asks, use a dedicated turn to reply. 
++ **RUST** module path `cratea::moda::modb` as section header
+    + full item removal: `-` mark before name-only item (`-mod module`), elide body; for partial update and addition, apply following rules
     + `static` / `const` / `type` : present full
-    + `struct` / `enum` / `trait` : full, `+` mark field/variant addition (`+field: Type`), `-` mark removal
-    + `fn` : only type signature in full, `+` mark arg addition (`+arg: Type`), `-` mark removal, elide body
+    + `struct` / `enum` / `trait` : full, `+` mark field/variant/method addition (`+field: Type`, `+fn func(arg: TypeA) -> TypeB`), `-` mark removal
+    + `fn`: only type signature in full, `+` mark arg addition (`+arg: Type`), `-` mark removal, elide body; for added `fn`, present like `+fn func(arg: TypeA) -> TypeB`
     + `mod` : inferrable from module path, omit dedicated presentation
 + **TYPESCRIPT**
     + full item removal: `-` mark before name-only item (`-interface X`), elide body; for partial update, apply following rules
-    + top-level `const` / `let` : present full
+    + top-level `const` / `let` : present full; elide inner function body if it is a closure
     + `interface` / `type` : full, `+` mark field/variant addition (`+field: Type`, `+ | {kind: "negate", lhs: Type}`), `-` mark removal
-    + `function` : only type signature in full, `+` mark arg addition (`+arg: Type`), `-` mark removal, elide body
+    + `function` : only type signature in full, `+` mark arg addition (`+arg: Type`), `-` mark removal, elide body; for added `function`, present like `+function ...`
     + `import` / file module : inferrable from path, omit dedicated presentation
 + **TSX** (inherit **TYPESCRIPT**)
     + TSX component `function` or `const`, still elide most body but present: binder lines `let ... : ... = use...` and full markup diff
