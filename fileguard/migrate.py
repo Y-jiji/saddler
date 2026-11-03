@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Move projects from the old edit_guard hooks to the fileguard sandbox.
+"""Move projects from older hooks to the current fileguard sandbox.
 
 For every project under ROOT whose .claude/settings.json runs an OLD hook,
 drop those hook entries and the scripts inside the project, copy the NEW
@@ -16,10 +16,12 @@ from pathlib import Path
 from typing import Final, TypeAlias
 
 ROOT: Final = "~/Documents/Project"
-OLD: Final = ("edit_guard.py", "edit_hint.py", "write_guard.py")
-NEW: Final = ("sessionstartsandbox.py", "pretoolusewrite.py")
-SESSION_START: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstartsandbox.py"'
+OLD: Final = ("edit_guard.py", "edit_hint.py", "write_guard.py",
+              "sessionstartsandbox.py", "pretoolusewrite.py")
+NEW: Final = ("pretoolusewrite.py",)
 WRITE_GUARD: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/pretoolusewrite.py" || exit 2'
+MATCHER: Final = "Bash|Monitor|Write|Edit|NotebookEdit|Read|Grep|Glob"
+RELEASE: Final = "Write|Edit|NotebookEdit"
 Settings: TypeAlias = dict[str, object]
 
 
@@ -63,44 +65,50 @@ def strip(settings: Settings, project: Path) -> list[Path]:
 
 
 def register(settings: Settings) -> bool:
-    """Add the SessionStart and Write|Edit|NotebookEdit entries for the NEW
-    hooks unless that event already runs them; True when one was added."""
+    """Add the PreToolUse, PostToolUse and PostToolUseFailure entries for the
+    NEW hook unless that event already runs it; True when one was added. The
+    PreToolUse timeout outlasts the hook's wait for the mode lock."""
     hooks = settings.setdefault("hooks", {})
     added = False
-    for event, matcher, command, name in (
-            ("SessionStart", "", SESSION_START, NEW[0]),
-            ("PreToolUse", "Write|Edit|NotebookEdit", WRITE_GUARD, NEW[1])):
+    for event, matcher, timeout in (("PreToolUse", MATCHER, 110),
+                                    ("PostToolUse", RELEASE, 10),
+                                    ("PostToolUseFailure", RELEASE, 10)):
         groups = hooks.setdefault(event, [])
-        if name in json.dumps(groups):
+        if NEW[0] in json.dumps(groups):
             continue
-        entry = {"type": "command", "command": command, "timeout": 10}
-        groups.append({"matcher": matcher, "hooks": [entry]} if matcher
-                      else {"hooks": [entry]})
+        entry = {"type": "command", "command": WRITE_GUARD, "timeout": timeout}
+        groups.append({"matcher": matcher, "hooks": [entry]})
         added = True
     return added
 
 
 def migrate(project: Path, apply: bool) -> list[str]:
     """What migrating one project does, one line per action, and with apply
-    also does it; empty when the project runs no OLD hook."""
+    also does it; empty when the project runs no OLD hook, is already current,
+    or ships these hooks itself."""
     path = project / ".claude" / "settings.json"
+    if (project / "fileguard" / Path(__file__).name).is_file():
+        return []
     try:
-        settings = json.loads(path.read_text())
+        text = path.read_text()
+        settings = json.loads(text)
     except (OSError, ValueError):
+        return []
+    if "PostToolUseFailure" in text:
         return []
     dropped = strip(settings, project)
     if not dropped:
         return []
     here = Path(__file__).resolve().parent
     hooksdir = project / ".claude" / "hooks"
-    stale = sorted({p for p in dropped if p.is_file()
+    stale = sorted({p for p in dropped if p.is_file() and p.name not in NEW
                     and p.resolve().is_relative_to(project.resolve())})
     actions = ["drop hooks running "
                + ", ".join(sorted({p.name for p in dropped}))]
     actions += ["delete " + os.path.relpath(p, project) for p in stale]
     actions += ["copy %s to .claude/hooks/" % name for name in NEW]
     if register(settings):
-        actions.append("register SessionStart and Write|Edit|NotebookEdit")
+        actions.append("register PreToolUse, PostToolUse and PostToolUseFailure")
     if apply:
         hooksdir.mkdir(parents=True, exist_ok=True)
         for name in NEW:
