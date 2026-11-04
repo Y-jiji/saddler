@@ -52,7 +52,6 @@ Agent's intelligence dilutes with context length. User must know that.
 
 Bugs and risks:
 - [x] BUG3: Hidden left-behind processes: fixed by giving the owner's holder a PID namespace, which also hides host processes from owner commands.
-- [ ] BUG4: List-only checkpoints: a new ignored file or folder counts as a change, so it can kill running fork commands at the next tick with no owner writes.
 - [ ] BUG5: PID reuse: the fork path trusts `kill -0` on a recorded PID, while the owner path also checks the namespace.
 - [x] BUG6: A folder converted from tracked to ignored replaced a live fork's copy and dropped its work from the branch: fixed by making each fork follow its snapshotted `.gitignore`.
 
@@ -63,6 +62,7 @@ Known limits:
 - [ ] LIMIT4: Each base copies single ignored files in full, however big they are.
 - [ ] LIMIT5: Writers outside Claude: a terminal or editor writing to a shared ignored folder under a live holder, the owner's or a fork's, gives that holder an inconsistent view, and a build there can make a fork run the wrong binary. Assumes fileguard's hooks are the only hooks.
 - [ ] LIMIT6: A checkpoint is assumed to succeed. If one is interrupted or fails, forks stay blocked until an owner command finishes it. With the owner gone that takes a new session, and a repeating failure needs a manual fix first.
+- [ ] LIMIT7: A new single ignored file triggers a checkpoint that can kill running fork commands, though nothing needs sharing. Left as is, because new single ignored files are rare.
 
 Not yet verified:
 - [ ] TEST1: A real preemption or period-driven checkpoint with a live subagent.
