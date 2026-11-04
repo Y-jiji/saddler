@@ -11,9 +11,10 @@ COMMAND=$@
 # [1] initialize base commit folder
 if [ ! -d $BASE_FOLDER ]; then
     mkdir -p "$BASE_FOLDER"
+    GIT_INDEX_FILE=$(mktemp -u) \
     git --git-dir="$PROJ_FOLDER/.git" \
         --work-tree="$BASE_FOLDER" \
-        checkout -f $BASE_COMMIT
+        restore --source=$BASE_COMMIT --worktree -- .
 fi
 
 # [2] initialize fork folders if not exist
