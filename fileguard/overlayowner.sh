@@ -39,8 +39,10 @@ if [ -z "$HOLDER" ] || ! kill -0 "$HOLDER" 2>/dev/null ||
                    --overlay "$OWNER_FOLDER/$NAME/upper" "$OWNER_FOLDER/$NAME/work" "$PROJ_FOLDER/$DIR")
     done
     START=$(mktemp -d) || exit 1
-    setsid "${HOLD[@]}" "${OVERLAYS[@]}" --info-fd 9 --chdir / -- bash -c 'echo ready >&8; exec sleep infinity' \
-        8>"$START/ready" 9>"$START/info" 194<&- 195>&- </dev/null >/dev/null 2>"$START/err" &
+    mkfifo "$START/go" || exit 1
+    exec 192<>"$START/go"
+    setsid "${HOLD[@]}" "${OVERLAYS[@]}" --info-fd 9 --chdir / -- bash -c 'echo ready >&8; read -r _ <&7 && exec sleep infinity 7<&-' \
+        7<"$START/go" 8>"$START/ready" 9>"$START/info" 192>&- 194<&- 195>&- </dev/null >/dev/null 2>"$START/err" &
     for i in $(seq 1 300); do
         if [ -s "$START/ready" ]; then break; fi
         sleep 0.02
@@ -53,6 +55,8 @@ if [ -z "$HOLDER" ] || ! kill -0 "$HOLDER" 2>/dev/null ||
     fi
     rm -rf "$START"
     printf '%s\n' "$HOLDER" > "$LOCK_FOLDER/ownerholder"
+    echo go >&192
+    exec 192>&-
     setsid bash -c '
         while kill -0 "$0" 2>/dev/null && kill -0 "$1" 2>/dev/null; do sleep 1; done
         while kill -0 "$1" 2>/dev/null; do

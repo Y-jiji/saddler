@@ -59,13 +59,15 @@ if [ "${HOLDER:--}" = - ] || ! kill -0 "$HOLDER" 2>/dev/null; then
                    --overlay "$FORK_FOLDER/ignored/$NAME/upper" "$FORK_FOLDER/ignored/$NAME/work" "$PROJ_FOLDER/$DIR")
     done
     START=$(mktemp -d) || exit 1
+    mkfifo "$START/go" || exit 1
+    exec 192<>"$START/go"
     setsid "${HOLD[@]}" --unshare-pid --proc /proc \
         --overlay-src "$BASE_FOLDER/tree" \
         --overlay "$FORK_FOLDER/fork" "$FORK_FOLDER/work" "$PROJ_FOLDER" \
         --bind "$PROJ_FOLDER/.git" "$PROJ_FOLDER/.git" \
         "${OVERLAYS[@]}" \
-        --info-fd 9 --chdir / -- bash -c 'echo ready >&8; exec sleep infinity' \
-        8>"$START/ready" 9>"$START/info" 195>&- </dev/null >/dev/null 2>"$START/err" &
+        --info-fd 9 --chdir / -- bash -c 'echo ready >&8; read -r _ <&7 && exec sleep infinity 7<&-' \
+        7<"$START/go" 8>"$START/ready" 9>"$START/info" 192>&- 195>&- </dev/null >/dev/null 2>"$START/err" &
     for i in $(seq 1 300); do
         if [ -s "$START/ready" ]; then break; fi
         sleep 0.02
@@ -78,21 +80,27 @@ if [ "${HOLDER:--}" = - ] || ! kill -0 "$HOLDER" 2>/dev/null; then
     fi
     rm -rf "$START"
     printf '%s %s %s %s\n' "$HOLDER" "$BASE_COMMIT" "$BRANCH" "$CLAUDE_PID" > "$LOCK_FILE"
+    echo go >&192
+    exec 192>&-
     setsid bash -c 'while kill -0 "$0" 2>/dev/null && kill -0 "$1" 2>/dev/null; do sleep 1; done; kill -KILL "$1" 2>/dev/null' \
         "$CLAUDE_PID" "$HOLDER" 195>&- </dev/null >/dev/null 2>&1 &
-    SEEN=$(cat "$FORK_FOLDER/generation" 2>/dev/null || cat "$BASE_FOLDER/generation" 2>/dev/null)
-    LATEST=$(cat "$LOCK_FOLDER/generation" 2>/dev/null)
-    if [ "$SEEN" != "$LATEST" ]; then
-        REGULAR=$(mktemp) || exit 1
-        git --git-dir="$PROJ_FOLDER/.git" ls-tree -r -z "$BASE_COMMIT" | grep -z '^100' | cut -z -f2- > "$REGULAR"
-        LC_ALL=C comm -z -23 \
-            <(nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" \
-                  xargs -0 -r stat --printf='%.9Y %s %n\0' -- < "$REGULAR" 2>/dev/null | LC_ALL=C sort -z) \
-            <(env -C "$PROJ_FOLDER" xargs -0 -r stat --printf='%.9Y %s %n\0' -- < "$REGULAR" 2>/dev/null | LC_ALL=C sort -z) |
-            cut -z -d' ' -f3- |
-            nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" \
-                xargs -0 -r touch -c -- 2>/dev/null
-        rm -f "$REGULAR"
+fi
+SEEN=$(cat "$FORK_FOLDER/generation" 2>/dev/null || cat "$BASE_FOLDER/generation" 2>/dev/null)
+LATEST=$(cat "$LOCK_FOLDER/generation" 2>/dev/null)
+if [ "$SEEN" != "$LATEST" ]; then
+    REGULAR=$(mktemp) || exit 1
+    git --git-dir="$PROJ_FOLDER/.git" ls-tree -r -z "$BASE_COMMIT" | grep -z '^100' | cut -z -f2- > "$REGULAR"
+    LC_ALL=C comm -z -23 \
+        <(nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" \
+              xargs -0 -r stat --printf='%.9Y %s %n\0' -- < "$REGULAR" 2>/dev/null | LC_ALL=C sort -z) \
+        <(env -C "$PROJ_FOLDER" xargs -0 -r stat --printf='%.9Y %s %n\0' -- < "$REGULAR" 2>/dev/null | LC_ALL=C sort -z) |
+        cut -z -d' ' -f3- |
+        nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" \
+            xargs -0 -r touch -c -- 2>/dev/null
+    rm -f "$REGULAR"
+    if ! kill -0 "$HOLDER" 2>/dev/null; then
+        echo "overlayfork.sh: a checkpoint preempted this command, run it again" >&2
+        exit 1
     fi
     if [ -n "$LATEST" ]; then printf '%s\n' "$LATEST" > "$FORK_FOLDER/generation"; fi
 fi

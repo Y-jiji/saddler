@@ -172,6 +172,28 @@ class ForkTest(SandboxCase):
         self.assertIn("interrupted", done.stderr)
         self.assertNotIn("ran", done.stdout)
 
+    def testinterrupt(self) -> None:
+        shim = self.home / "shim"
+        shim.mkdir()
+        (shim / "sed").write_text("#!/bin/bash\nkill -KILL $PPID\n")
+        (shim / "sed").chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": "%s:%s" % (shim, os.environ["PATH"])}):
+            self.assertEqual(self.fork("echo", "ran").returncode, -signal.SIGKILL)
+        time.sleep(0.3)
+        done = self.fork("echo", "ran")
+        self.assertEqual(done.stdout, "ran\n", done.stderr)
+
+    def testgeneration(self) -> None:
+        (self.lock / "ignored").write_bytes(b"target/\0")
+        (self.lock / "generation").write_text("1\n")
+        self.fork("true")
+        (self.root / "a.txt").write_text("owner\n")
+        (self.lock / "generation").write_text("2\n")
+        before = time.time_ns()
+        done = self.fork("stat", "-c", "%.9Y", "a.txt")
+        self.assertGreaterEqual(int(done.stdout.strip().replace(".", "")), before, done.stderr)
+        self.assertEqual((self.folder / "agent-a1" / "generation").read_text(), "2\n")
+
     @unittest.skipUnless(shutil.which("cargo"), "cargo is not installed")
     def testcargo(self) -> None:
         rustup = Path(os.environ["HOME"]) / ".rustup"

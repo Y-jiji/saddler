@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import signal
 import subprocess
 import time
 import unittest
@@ -91,6 +92,20 @@ class OwnerTest(OwnerCase):
         self.assertTrue(self.alive(holder))
         time.sleep(2.2)
         self.assertFalse(self.alive(holder))
+
+    def testinterrupt(self) -> None:
+        shim = self.home / "shim"
+        shim.mkdir()
+        (shim / "sed").write_text("#!/bin/bash\nkill -KILL $PPID\n")
+        (shim / "sed").chmod(0o755)
+        script = [str(self.saddler / "overlayowner.sh"), str(self.root), str(self.lock), str(self.first.pid), "true",
+                  "bwrap", "--dev-bind", "/", "/", "--", "true"]
+        killed = subprocess.run(script, capture_output=True, cwd=self.root, timeout=30,
+                                env={**self.environ("s-1", self.first), "PATH": "%s:%s" % (shim, os.environ["PATH"])})
+        self.assertEqual(killed.returncode, -signal.SIGKILL)
+        time.sleep(0.3)
+        done = self.shell("echo ran")
+        self.assertEqual(done.stdout, "ran\n", done.stderr)
 
     def testhostpid(self) -> None:
         self.assertEqual(self.shell("cat /proc/%d/comm" % self.first.pid).stdout, "sleep\n")
