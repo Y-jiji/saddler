@@ -23,7 +23,10 @@ fi
 [ ! -d $FORK_FOLDER/work ]   && mkdir -p "$FORK_FOLDER/work"
 [ ! -d $FORK_FOLDER/commit ] && mkdir -p "$FORK_FOLDER/commit"
 
-# [3] execute command in fake workspace + read-only git
+# [3a] lock git into current snapshot
+# ...
+
+# [3b] execute command in fake workspace + read-only git
 bwrap   --dev-bind      / / \
         --overlay-src   "$BASE_FOLDER" \
         --overlay       "$FORK_FOLDER/commit" "$FORK_FOLDER/work" "$PROJ_FOLDER" \
@@ -32,6 +35,9 @@ bwrap   --dev-bind      / / \
         --ro-bind       "$BASE_FOLDER.index" "$PROJ_FOLDER/.git/index" \
         --chdir         "$PROJ_FOLDER" \
         --              "$@"
+
+# [3c] unlock git from current snapshot
+# ...
 
 # [4] commit changes using fake workspace + real git
 TMP_INDEX_FILE=$(mktemp -u)
