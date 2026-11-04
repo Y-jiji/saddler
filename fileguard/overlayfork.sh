@@ -12,8 +12,12 @@ HOLD=()
 while [ "$1" != -- ]; do HOLD+=("$1"); shift; done
 shift
 LOCK_FOLDER=${LOCK_FILE%/*}
-IGNORED=()
-if [ -e "$LOCK_FOLDER/ignored" ]; then mapfile -d '' -t IGNORED < "$LOCK_FOLDER/ignored"; fi
+keepignored() {
+    IGNORED=()
+    if [ ! -s "$LOCK_FOLDER/ignored" ]; then return; fi
+    mapfile -d '' -t IGNORED < <(GIT_HELD=1 GIT_INDEX_FILE="$1/index" git --git-dir="$PROJ_FOLDER/.git" --work-tree=. -C "$1/tree" \
+        check-ignore -z --stdin < "$LOCK_FOLDER/ignored")
+}
 
 # [1] initialize base commit folder
 if [ ! -d "$BASE_FOLDER" ]; then
@@ -31,12 +35,14 @@ if [ ! -d "$BASE_FOLDER" ]; then
         <(git --git-dir="$PROJ_FOLDER/.git" ls-tree -r -z "$BASE_COMMIT" | grep -z '^100' | cut -z -f2- | LC_ALL=C sort -z) \
         <(GIT_OPTIONAL_LOCKS=0 git -C "$PROJ_FOLDER" diff -z --no-renames --name-only "$BASE_COMMIT" | LC_ALL=C sort -z) |
         env -C "$PROJ_FOLDER" xargs -0 -r cp --attributes-only --preserve=timestamps --parents -t "$BUILD/tree" -- 2>/dev/null
+    keepignored "$BUILD"
     for ENTRY in "${IGNORED[@]}"; do
         if [ "${ENTRY%/}" = "$ENTRY" ]; then printf '%s\0' "$ENTRY"; fi
     done | env -C "$PROJ_FOLDER" xargs -0 -r cp -a --parents -t "$BUILD/tree" -- 2>/dev/null
     if [ -e "$LOCK_FOLDER/generation" ]; then cp "$LOCK_FOLDER/generation" "$BUILD/generation"; fi
     mv -T "$BUILD" "$BASE_FOLDER" 2>/dev/null || rm -rf "$BUILD"
 fi
+keepignored "$BASE_FOLDER"
 
 # [2] initialize fork folders, start the holder unless one is live
 if [ -e "$LOCK_FOLDER/checkpointing" ]; then

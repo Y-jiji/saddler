@@ -54,6 +54,7 @@ Bugs and risks:
 - [x] BUG3: Hidden left-behind processes: fixed by giving the owner's holder a PID namespace, which also hides host processes from owner commands.
 - [ ] BUG4: List-only checkpoints: a new ignored file or folder counts as a change, so it can kill running fork commands at the next tick with no owner writes.
 - [ ] BUG5: PID reuse: the fork path trusts `kill -0` on a recorded PID, while the owner path also checks the namespace.
+- [x] BUG6: A folder converted from tracked to ignored replaced a live fork's copy and dropped its work from the branch: fixed by making each fork follow its snapshotted `.gitignore`.
 
 Known limits:
 - [ ] LIMIT1: `cargo clean` empties `target/`, then fails with `Device or resource busy`, because `target/` is a mountpoint.
