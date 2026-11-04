@@ -36,5 +36,5 @@ Why:
 - State lives in `~/.claude/sandbox/project-<percent-encoded project folder>/`: `lock/`, and `session-<session-id>/` holding `agent-<agent-id>/{fork, work, ignored, generation}`, `agent-master/` and `commit-<commit-hash>/{HEAD, index, tree, generation}`. The owner's uppers live in `<project>/.git/saddler/owner/`, so moving them is a hard link on one filesystem. A session without that folder runs unsandboxed. `SessionStart` makes it, and `pretoolusewrite.py` makes it in print mode, where `SessionStart` does not fire.
 - Claude Code's wrapper format is undocumented and tool calls are told from hook shells by it, so repeat the step 6 checks after updating Claude Code.
 - Steps 2 and 3 come before step 5: once `pretoolusewrite.py` is registered, Write cannot reach `~/.claude`; once the prefix is live, neither can Bash.
-- A session or project on the old hooks runs unguarded under this `sandbox.sh`: run `migrate.py --apply` outside the sandbox and restart every session.
+- A session or project on the old hooks runs unguarded under this `sandbox.sh`: run `migrate.py <folder> --apply` outside the sandbox and restart every session. It scans the folder for `.claude`, compares each project's hook entries and hook files with the current ones, and fixes what differs.
 - `|| exit 2` denies the call if the guard is broken, instead of running it unguarded.
