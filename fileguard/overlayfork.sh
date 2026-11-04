@@ -9,22 +9,27 @@ shift 5
 
 # [1] initialize base commit folder
 if [ ! -d $BASE_FOLDER ]; then
-    git init -q --template= "$BASE_FOLDER"
-    echo "$PROJ_FOLDER/.git/objects" > "$BASE_FOLDER/.git/objects/info/alternates"
-    git -C "$BASE_FOLDER" checkout -q --detach $BASE_COMMIT
-    echo "$BASE_FOLDER.objects" > "$BASE_FOLDER/.git/objects/info/alternates"
-    mkdir -p "$BASE_FOLDER.objects"
+    mkdir -p "$BASE_FOLDER"
+    GIT_INDEX_FILE=$(mktemp -u) \
+    git --git-dir="$PROJ_FOLDER/.git" \
+        --work-tree="$BASE_FOLDER" \
+        restore --source=$BASE_COMMIT --worktree -- .
+    git --git-dir="$PROJ_FOLDER/.git" rev-parse "$BASE_COMMIT^{commit}" > "$BASE_FOLDER.HEAD"
+    GIT_INDEX_FILE="$BASE_FOLDER.index" \
+    git --git-dir="$PROJ_FOLDER/.git" read-tree $BASE_COMMIT
 fi
 
 # [2] initialize fork folders if not exist
 [ ! -d $FORK_FOLDER/work ]   && mkdir -p "$FORK_FOLDER/work"
 [ ! -d $FORK_FOLDER/commit ] && mkdir -p "$FORK_FOLDER/commit"
 
-# [3] execute command in fake workspace + fake git
+# [3] execute command in fake workspace + read-only git
 bwrap   --dev-bind      / / \
-        --ro-bind       "$PROJ_FOLDER/.git/objects" "$BASE_FOLDER.objects" \
         --overlay-src   "$BASE_FOLDER" \
         --overlay       "$FORK_FOLDER/commit" "$FORK_FOLDER/work" "$PROJ_FOLDER" \
+        --ro-bind       "$PROJ_FOLDER/.git" "$PROJ_FOLDER/.git" \
+        --ro-bind       "$BASE_FOLDER.HEAD" "$PROJ_FOLDER/.git/HEAD" \
+        --ro-bind       "$BASE_FOLDER.index" "$PROJ_FOLDER/.git/index" \
         --chdir         "$PROJ_FOLDER" \
         --              "$@"
 
