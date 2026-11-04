@@ -55,6 +55,17 @@ def lockdir(root: str) -> str:
                         "project-" + quote(root, safe=""), "lock")
 
 
+def inignored(lock: str, rel: str) -> bool:
+    """Whether a project path lies in a gitignored folder that overlays use as a lower."""
+    try:
+        with open(os.path.join(lock, "ignored"), "rb") as f:
+            entries = f.read().split(b"\0")
+    except OSError:
+        return False
+    path = os.fsencode(rel) + b"/"
+    return any(e.endswith(b"/") and path.startswith(e) for e in entries)
+
+
 def main() -> None:
     """Handle one PreToolUse call, top to bottom. SHAME(TALLFUNC)"""
     payload = json.load(sys.stdin)
@@ -96,6 +107,10 @@ def main() -> None:
         if real != root and not real.startswith(root + os.sep):
             json.dump(denial("%s is outside the project %s. %s may only change "
                              "files inside it." % (path, root, tool)), sys.stdout)
+            return
+        if inignored(lock, os.path.relpath(real, root)):
+            json.dump(denial("%s is in a gitignored folder that subagents share. "
+                             "Use Bash instead: it writes to an overlay." % path), sys.stdout)
             return
 
     if field is not None or tool in SPAWN_TOOLS:

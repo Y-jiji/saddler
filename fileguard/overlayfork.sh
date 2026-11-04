@@ -11,6 +11,9 @@ shift 7
 HOLD=()
 while [ "$1" != -- ]; do HOLD+=("$1"); shift; done
 shift
+LOCK_FOLDER=${LOCK_FILE%/*}
+IGNORED=()
+if [ -e "$LOCK_FOLDER/ignored" ]; then mapfile -d '' -t IGNORED < "$LOCK_FOLDER/ignored"; fi
 
 # [1] initialize base commit folder
 if [ ! -d "$BASE_FOLDER" ]; then
@@ -24,20 +27,43 @@ if [ ! -d "$BASE_FOLDER" ]; then
         echo "overlayfork.sh: cannot build the base at $BASE_COMMIT" >&2
         exit 1
     fi
+    LC_ALL=C comm -z -23 \
+        <(git --git-dir="$PROJ_FOLDER/.git" ls-tree -r -z "$BASE_COMMIT" | grep -z '^100' | cut -z -f2- | LC_ALL=C sort -z) \
+        <(GIT_OPTIONAL_LOCKS=0 git -C "$PROJ_FOLDER" diff -z --no-renames --name-only "$BASE_COMMIT" | LC_ALL=C sort -z) |
+        env -C "$PROJ_FOLDER" xargs -0 -r cp --attributes-only --preserve=timestamps --parents -t "$BUILD/tree" -- 2>/dev/null
+    for ENTRY in "${IGNORED[@]}"; do
+        if [ "${ENTRY%/}" = "$ENTRY" ]; then printf '%s\0' "$ENTRY"; fi
+    done | env -C "$PROJ_FOLDER" xargs -0 -r cp -a --parents -t "$BUILD/tree" -- 2>/dev/null
+    if [ -e "$LOCK_FOLDER/generation" ]; then cp "$LOCK_FOLDER/generation" "$BUILD/generation"; fi
     mv -T "$BUILD" "$BASE_FOLDER" 2>/dev/null || rm -rf "$BUILD"
 fi
 
 # [2] initialize fork folders, start the holder unless one is live
+if [ -e "$LOCK_FOLDER/checkpointing" ]; then
+    echo "overlayfork.sh: a checkpoint was interrupted, the owner's next command finishes it" >&2
+    exit 1
+fi
 mkdir -p "$FORK_FOLDER/fork" "$FORK_FOLDER/work" || exit 1
 exec 195>>"$LOCK_FILE"
 flock 195
 read -r HOLDER _ < "$LOCK_FILE"
 if [ "${HOLDER:--}" = - ] || ! kill -0 "$HOLDER" 2>/dev/null; then
+    OVERLAYS=()
+    for ENTRY in "${IGNORED[@]}"; do
+        DIR=${ENTRY%/}
+        if [ "$DIR" = "$ENTRY" ] || [ ! -d "$PROJ_FOLDER/$DIR" ]; then continue; fi
+        NAME=${DIR//%/%25}
+        NAME=${NAME//\//%2F}
+        mkdir -p "$FORK_FOLDER/ignored/$NAME/upper" "$FORK_FOLDER/ignored/$NAME/work" || exit 1
+        OVERLAYS+=(--overlay-src "$PROJ_FOLDER/$DIR"
+                   --overlay "$FORK_FOLDER/ignored/$NAME/upper" "$FORK_FOLDER/ignored/$NAME/work" "$PROJ_FOLDER/$DIR")
+    done
     START=$(mktemp -d) || exit 1
     setsid "${HOLD[@]}" --unshare-pid --proc /proc \
         --overlay-src "$BASE_FOLDER/tree" \
         --overlay "$FORK_FOLDER/fork" "$FORK_FOLDER/work" "$PROJ_FOLDER" \
         --bind "$PROJ_FOLDER/.git" "$PROJ_FOLDER/.git" \
+        "${OVERLAYS[@]}" \
         --info-fd 9 --chdir / -- bash -c 'echo ready >&8; exec sleep infinity' \
         8>"$START/ready" 9>"$START/info" 195>&- </dev/null >/dev/null 2>"$START/err" &
     for i in $(seq 1 300); do
@@ -54,6 +80,21 @@ if [ "${HOLDER:--}" = - ] || ! kill -0 "$HOLDER" 2>/dev/null; then
     printf '%s %s %s %s\n' "$HOLDER" "$BASE_COMMIT" "$BRANCH" "$CLAUDE_PID" > "$LOCK_FILE"
     setsid bash -c 'while kill -0 "$0" 2>/dev/null && kill -0 "$1" 2>/dev/null; do sleep 1; done; kill -KILL "$1" 2>/dev/null' \
         "$CLAUDE_PID" "$HOLDER" 195>&- </dev/null >/dev/null 2>&1 &
+    SEEN=$(cat "$FORK_FOLDER/generation" 2>/dev/null || cat "$BASE_FOLDER/generation" 2>/dev/null)
+    LATEST=$(cat "$LOCK_FOLDER/generation" 2>/dev/null)
+    if [ "$SEEN" != "$LATEST" ]; then
+        REGULAR=$(mktemp) || exit 1
+        git --git-dir="$PROJ_FOLDER/.git" ls-tree -r -z "$BASE_COMMIT" | grep -z '^100' | cut -z -f2- > "$REGULAR"
+        LC_ALL=C comm -z -23 \
+            <(nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" \
+                  xargs -0 -r stat --printf='%.9Y %s %n\0' -- < "$REGULAR" 2>/dev/null | LC_ALL=C sort -z) \
+            <(env -C "$PROJ_FOLDER" xargs -0 -r stat --printf='%.9Y %s %n\0' -- < "$REGULAR" 2>/dev/null | LC_ALL=C sort -z) |
+            cut -z -d' ' -f3- |
+            nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" \
+                xargs -0 -r touch -c -- 2>/dev/null
+        rm -f "$REGULAR"
+    fi
+    if [ -n "$LATEST" ]; then printf '%s\n' "$LATEST" > "$FORK_FOLDER/generation"; fi
 fi
 flock -u 195
 
@@ -61,15 +102,25 @@ flock -u 195
 CWD=$PWD
 REL=${CWD#"$PROJ_FOLDER"}
 if [ "$REL" = "$CWD" ] || { [ ! -d "$BASE_FOLDER/tree$REL" ] && [ ! -d "$FORK_FOLDER/fork$REL" ]; }; then CWD=$PROJ_FOLDER; fi
+HIDE=()
+if [ -d "$PROJ_FOLDER/.git/saddler" ]; then HIDE=(--tmpfs "$PROJ_FOLDER/.git/saddler" --remount-ro "$PROJ_FOLDER/.git/saddler"); fi
 rc=0
 nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- \
     bwrap   --dev-bind      / / \
             --ro-bind       "$PROJ_FOLDER/.git" "$PROJ_FOLDER/.git" \
             --ro-bind       "$BASE_FOLDER/HEAD" "$PROJ_FOLDER/.git/HEAD" \
             --ro-bind       "$BASE_FOLDER/index" "$PROJ_FOLDER/.git/index" \
+            "${HIDE[@]}" \
             --tmpfs         "$HOME/.claude/sandbox" --remount-ro "$HOME/.claude/sandbox" \
             --chdir         "$CWD" \
             --              "$@" 195>&- || rc=$?
+if [ "$rc" -ge 128 ]; then
+    for i in $(seq 1 100); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
+fi
+if [ "$rc" -ne 0 ] && ! kill -0 "$HOLDER" 2>/dev/null; then
+    echo "overlayfork.sh: a checkpoint preempted this command, run it again" >&2
+    exit "$rc"
+fi
 
 # [4] commit changes using fake workspace + real git
 flock 195
@@ -78,8 +129,14 @@ hackygit() {
     nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- \
         env -C "$PROJ_FOLDER" GIT_INDEX_FILE="$TMP_INDEX_FILE" git "$@"
 }
+EXCLUDES=()
+if [ "${#IGNORED[@]}" -gt 0 ]; then
+    while IFS= read -r -d '' ENTRY; do EXCLUDES+=(":(exclude,literal)${ENTRY%/}"); done < <(
+        LC_ALL=C comm -z -23 <(printf '%s\0' "${IGNORED[@]}" | LC_ALL=C sort -z) \
+            <(printf '%s\0' "${IGNORED[@]}" | hackygit check-ignore -z --no-index --stdin | LC_ALL=C sort -z))
+fi
 FAILED=''
-TREE=$(hackygit read-tree "$BASE_COMMIT" && hackygit add -A && hackygit write-tree) || FAILED=1
+TREE=$(hackygit read-tree "$BASE_COMMIT" && hackygit add -A -- . "${EXCLUDES[@]}" && hackygit write-tree) || FAILED=1
 TIP=$(hackygit rev-parse -q --verify "refs/heads/$BRANCH") || TIP=''
 if [ -z "$FAILED" ] && { [ -z "$TIP" ] || [ "$TREE" != "$(hackygit rev-parse "$TIP^{tree}")" ]; }; then
     if [ "$TREE" = "$(hackygit rev-parse "$BASE_COMMIT^{tree}")" ]; then

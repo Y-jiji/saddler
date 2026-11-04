@@ -10,7 +10,7 @@ SKILLS="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 SADDLER="$HOME/.claude/saddler"
 BOX="$HOME/.claude/sandbox"
 mkdir -p "$SADDLER" "$BOX"
-for NAME in sandbox allowlist gitlock gitwrap overlayfork; do
+for NAME in sandbox allowlist gitlock gitwrap overlayfork overlayowner; do
     install -m 755 "$SRC/fileguard/$NAME.sh" "$SADDLER/$NAME.sh"
 done
 [ -e "$BOX/whitelist.txt" ] || cp "$SRC/fileguard/whitelist.txt" "$BOX/whitelist.txt"

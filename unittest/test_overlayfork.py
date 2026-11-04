@@ -1,9 +1,14 @@
 """Correctness tests for overlayfork.sh, with plain bwrap as the holder's wrapper."""
 
+import os
+import shutil
+import signal
 import subprocess
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from unittest import mock
 
 from test_fileguard import SandboxCase, git
 
@@ -106,6 +111,92 @@ class ForkTest(SandboxCase):
         claude.wait()
         time.sleep(1.6)
         self.assertEqual(subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, True)
+
+    def testignored(self) -> None:
+        (self.lock / "ignored").write_bytes(b"target/\0")
+        done = self.fork("bash", "-c", "cat target/art; echo w > target/art; echo n > target/n")
+        self.assertEqual(done.stdout, "art\n", done.stderr)
+        self.assertEqual((self.root / "target" / "art").read_text(), "art\n")
+        self.assertFalse((self.root / "target" / "n").exists())
+        self.assertEqual(self.fork("cat", "target/n").stdout, "n\n")
+        self.assertEqual(self.fork("cat", "target/art", agent="a2").stdout, "art\n")
+
+    def testexclude(self) -> None:
+        (self.lock / "ignored").write_bytes(b"target/\0secret.log\0")
+        (self.root / "secret.log").write_text("s\n")
+        done = self.fork("bash", "-c", "cat secret.log; rm .gitignore; echo n > target/n; echo k > kept.txt")
+        self.assertEqual(done.stdout, "s\n", done.stderr)
+        tree = git(self.root, "ls-tree", "-r", "--name-only", self.branch).split("\n")
+        self.assertIn("kept.txt", tree)
+        self.assertNotIn(".gitignore", tree)
+        self.assertNotIn("target/n", tree)
+        self.assertNotIn("secret.log", tree)
+
+    def testmtime(self) -> None:
+        (self.root / "del.txt").write_text("edited\n")
+        self.fork("true")
+        tree = self.basedir / "tree"
+        self.assertEqual((tree / "a.txt").stat().st_mtime_ns, (self.root / "a.txt").stat().st_mtime_ns)
+        self.assertNotEqual((tree / "del.txt").stat().st_mtime_ns, (self.root / "del.txt").stat().st_mtime_ns)
+        self.assertEqual((tree / "del.txt").read_text(), "gone\n")
+
+    def testremount(self) -> None:
+        (self.lock / "ignored").write_bytes(b"target/\0")
+        (self.lock / "generation").write_text("1\n")
+        self.fork("true")
+        os.kill(self.holder("s-1", "a1"), signal.SIGKILL)
+        time.sleep(0.1)
+        (self.root / "a.txt").write_text("owner\n")
+        (self.lock / "generation").write_text("2\n")
+        before = time.time_ns()
+        done = self.fork("stat", "-c", "%.9Y", "a.txt", "del.txt")
+        edited, kept = [int(word.replace(".", "")) for word in done.stdout.split()]
+        self.assertGreaterEqual(edited, before - 1_000_000_000, done.stderr)
+        self.assertEqual(kept, (self.root / "del.txt").stat().st_mtime_ns)
+        self.assertEqual(self.fork("cat", "a.txt").stdout, "two\n")
+
+    def testpreempted(self) -> None:
+        with ThreadPoolExecutor(1) as pool:
+            late = pool.submit(self.fork, "sleep", "30")
+            time.sleep(0.5)
+            os.kill(self.holder("s-1", "a1"), signal.SIGKILL)
+            done = late.result()
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("preempted", done.stderr)
+        self.assertEqual(self.fork("echo", "again").stdout, "again\n")
+
+    def testinterrupted(self) -> None:
+        (self.lock / "checkpointing").touch()
+        done = self.fork("echo", "ran")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("interrupted", done.stderr)
+        self.assertNotIn("ran", done.stdout)
+
+    @unittest.skipUnless(shutil.which("cargo"), "cargo is not installed")
+    def testcargo(self) -> None:
+        rustup = Path(os.environ["HOME"]) / ".rustup"
+        with (self.box / "whitelist.txt").open("a") as f:
+            f.write("ro %s\n" % rustup)
+        (self.root / "Cargo.toml").write_text('[package]\nname = "probe"\nversion = "0.1.0"\nedition = "2021"\n')
+        (self.root / "src").mkdir()
+        (self.root / "src" / "main.rs").write_text('fn main() { println!("BASE"); }\n')
+        settings = {"RUSTUP_HOME": str(rustup), "CARGO_HOME": str(self.home / "tmp" / "cargo")}
+        with mock.patch.dict(os.environ, settings):
+            os.environ.pop("CARGO_TARGET_DIR", None)
+            built = self.shell("cargo build --offline -q")
+            self.assertEqual(built.returncode, 0, built.stderr)
+            git(self.root, "add", "-A")
+            git(self.root, "commit", "-qm", "crate")
+            done = self.shell("# saddler agent=c1\ncargo run --offline -v")
+            self.assertEqual(done.stdout, "BASE\n", done.stderr)
+            self.assertIn("Fresh", done.stderr)
+            (self.root / "src" / "main.rs").write_text('fn main() { println!("OWNER"); }\n')
+            self.assertEqual(self.shell("cargo build --offline -q").returncode, 0)
+            os.utime(self.lock / "lastcheckpoint", (1, 1))
+            self.shell("true")
+            self.assertTrue((self.root / "target" / "debug" / "probe").exists())
+            done = self.shell("# saddler agent=c1\ncargo run --offline -q")
+            self.assertEqual(done.stdout, "BASE\n", done.stderr)
 
 
 if __name__ == "__main__":
