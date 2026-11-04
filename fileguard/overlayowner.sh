@@ -15,6 +15,11 @@ PERIOD=${SADDLER_CHECKPOINT_PERIOD:-300}
 WAIT=${SADDLER_PREEMPT_WAIT:-60}
 if [[ ! $PERIOD =~ ^[0-9]+$ ]]; then PERIOD=300; fi
 if [[ ! $WAIT =~ ^[0-9]+$ ]]; then WAIT=60; fi
+starttime() {
+    local STAT=''
+    { read -r STAT < "/proc/$1/stat"; } 2>/dev/null
+    cut -d' ' -f20 <<< "${STAT##*) }"
+}
 
 # [1] wait out a running checkpoint
 exec 194<"$LOCK_FOLDER/ownercmd" || exit 1
@@ -23,8 +28,8 @@ flock -s 194
 # [2] start the holder unless one is live
 exec 195>>"$LOCK_FOLDER/ownerholder" || exit 1
 flock 195
-read -r HOLDER < "$LOCK_FOLDER/ownerholder"
-if [ -z "$HOLDER" ] || ! kill -0 "$HOLDER" 2>/dev/null ||
+read -r HOLDER BORN < "$LOCK_FOLDER/ownerholder"
+if [ -z "$BORN" ] || [ "$(starttime "$HOLDER")" != "$BORN" ] ||
    [ "$(readlink "/proc/$HOLDER/ns/mnt")" = "$(readlink /proc/self/ns/mnt)" ]; then
     IGNORED=()
     OVERLAYS=()
@@ -55,7 +60,8 @@ if [ -z "$HOLDER" ] || ! kill -0 "$HOLDER" 2>/dev/null ||
         exit 1
     fi
     rm -rf "$START"
-    printf '%s\n' "$HOLDER" > "$LOCK_FOLDER/ownerholder"
+    BORN=$(starttime "$HOLDER")
+    printf '%s %s\n' "$HOLDER" "$BORN" > "$LOCK_FOLDER/ownerholder"
     echo go >&192
     exec 192>&-
     setsid bash -c '
@@ -109,10 +115,12 @@ killforks() {
         if [ ! -f "$FORK_FILE" ]; then continue; fi
         exec 193>>"$FORK_FILE"
         flock 193
-        if read -r FORK REST < "$FORK_FILE" && [ "$FORK" != - ]; then
-            kill -KILL "$FORK" 2>/dev/null
-            for i in $(seq 1 500); do if ! kill -0 "$FORK" 2>/dev/null; then break; fi; sleep 0.01; done
-            printf -- '- %s\n' "$REST" > "$FORK_FILE"
+        if read -r FORK COMMIT BRANCH CLAUDE BORN < "$FORK_FILE" && [ "$FORK" != - ]; then
+            if [ -n "$BORN" ] && [ "$(starttime "$FORK")" = "$BORN" ]; then
+                kill -KILL "$FORK" 2>/dev/null
+                for i in $(seq 1 500); do if ! kill -0 "$FORK" 2>/dev/null; then break; fi; sleep 0.01; done
+            fi
+            printf -- '- %s %s %s\n' "$COMMIT" "$BRANCH" "$CLAUDE" > "$FORK_FILE"
         fi
         exec 193>&-
     done

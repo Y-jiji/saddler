@@ -12,6 +12,11 @@ HOLD=()
 while [ "$1" != -- ]; do HOLD+=("$1"); shift; done
 shift
 LOCK_FOLDER=${LOCK_FILE%/*}
+starttime() {
+    local STAT=''
+    { read -r STAT < "/proc/$1/stat"; } 2>/dev/null
+    cut -d' ' -f20 <<< "${STAT##*) }"
+}
 keepignored() {
     IGNORED=()
     if [ ! -s "$LOCK_FOLDER/ignored" ]; then return; fi
@@ -52,8 +57,8 @@ fi
 mkdir -p "$FORK_FOLDER/fork" "$FORK_FOLDER/work" || exit 1
 exec 195>>"$LOCK_FILE"
 flock 195
-read -r HOLDER _ < "$LOCK_FILE"
-if [ "${HOLDER:--}" = - ] || ! kill -0 "$HOLDER" 2>/dev/null; then
+read -r HOLDER _ _ _ BORN < "$LOCK_FILE"
+if [ "${HOLDER:--}" = - ] || [ -z "$BORN" ] || [ "$(starttime "$HOLDER")" != "$BORN" ]; then
     OVERLAYS=()
     for ENTRY in "${IGNORED[@]}"; do
         DIR=${ENTRY%/}
@@ -85,7 +90,8 @@ if [ "${HOLDER:--}" = - ] || ! kill -0 "$HOLDER" 2>/dev/null; then
         exit 1
     fi
     rm -rf "$START"
-    printf '%s %s %s %s\n' "$HOLDER" "$BASE_COMMIT" "$BRANCH" "$CLAUDE_PID" > "$LOCK_FILE"
+    BORN=$(starttime "$HOLDER")
+    printf '%s %s %s %s %s\n' "$HOLDER" "$BASE_COMMIT" "$BRANCH" "$CLAUDE_PID" "$BORN" > "$LOCK_FILE"
     echo go >&192
     exec 192>&-
     setsid bash -c 'while kill -0 "$0" 2>/dev/null && kill -0 "$1" 2>/dev/null; do sleep 1; done; kill -KILL "$1" 2>/dev/null' \

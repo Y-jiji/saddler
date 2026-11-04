@@ -52,7 +52,7 @@ Agent's intelligence dilutes with context length. User must know that.
 
 Bugs and risks:
 - [x] BUG3: Hidden left-behind processes: fixed by giving the owner's holder a PID namespace, which also hides host processes from owner commands.
-- [ ] BUG5: PID reuse: the fork path trusts `kill -0` on a recorded PID, while the owner path also checks the namespace.
+- [x] BUG5: PID reuse could make a stale lock file point at an unrelated process, which could then be killed, most likely after a reboot: fixed by recording each holder's start time.
 - [x] BUG6: A folder converted from tracked to ignored replaced a live fork's copy and dropped its work from the branch: fixed by making each fork follow its snapshotted `.gitignore`.
 
 Known limits:

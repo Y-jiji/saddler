@@ -76,7 +76,7 @@ class OwnerTest(OwnerCase):
         time.sleep(1.2)
         self.assertEqual((self.root / "bg.txt").read_text(), "bg\n")
         self.shell("sleep 3 >/dev/null 2>&1 </dev/null &")
-        holder = int((self.lock / "ownerholder").read_text())
+        holder = int((self.lock / "ownerholder").read_text().split()[0])
         self.first.kill()
         self.first.wait()
         time.sleep(1.3)
@@ -106,6 +106,14 @@ class OwnerTest(OwnerCase):
         time.sleep(0.3)
         done = self.shell("echo ran")
         self.assertEqual(done.stdout, "ran\n", done.stderr)
+
+    def testreused(self) -> None:
+        other = self.newclaude()
+        (self.lock / "ownerholder").write_text("%d 1\n" % other.pid)
+        done = self.shell("echo ran")
+        self.assertEqual(done.stdout, "ran\n", done.stderr)
+        self.assertIsNone(other.poll())
+        self.assertNotEqual((self.lock / "ownerholder").read_text().split()[0], str(other.pid))
 
     def testhidden(self) -> None:
         self.assertNotIn("300", self.shell("cat /proc/%d/cmdline" % self.first.pid).stdout)
@@ -174,6 +182,18 @@ class TriggerTest(OwnerCase):
         self.shell("true")
         self.assertEqual((self.target / "x").read_text(), "x\n")
         self.assertEqual((self.target / "d").read_text(), "d\n")
+
+    def testreused(self) -> None:
+        self.shell("# saddler agent=a1\ntrue")
+        os.kill(self.holder("s-1", "a1"), signal.SIGKILL)
+        time.sleep(0.1)
+        other = self.newclaude()
+        record = (self.lock / "s-1-a1").read_text().split()
+        (self.lock / "s-1-a1").write_text(" ".join([str(other.pid)] + record[1:]) + "\n")
+        self.settle()
+        self.shell("echo x > target/x")
+        self.assertEqual((self.target / "x").read_text(), "x\n")
+        self.assertIsNone(other.poll())
 
     def testnested(self) -> None:
         self.shell("(unshare -Urm bash -c 'sleep 1; echo n > target/n') >/dev/null 2>&1 </dev/null & "

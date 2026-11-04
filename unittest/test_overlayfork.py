@@ -138,6 +138,17 @@ class ForkTest(SandboxCase):
         self.assertNotIn("target/n", tree)
         self.assertNotIn("secret.log", tree)
 
+    def testreused(self) -> None:
+        self.fork("true")
+        os.kill(self.holder("s-1", "a1"), signal.SIGKILL)
+        time.sleep(0.1)
+        other = self.newclaude()
+        record = (self.lock / "s-1-a1").read_text().split()
+        (self.lock / "s-1-a1").write_text(" ".join([str(other.pid)] + record[1:]) + "\n")
+        done = self.fork("echo", "ran")
+        self.assertEqual(done.stdout, "ran\n", done.stderr)
+        self.assertIsNone(other.poll())
+
     def testconverted(self) -> None:
         (self.root / "gen").mkdir()
         (self.root / "gen" / "file").write_text("base\n")

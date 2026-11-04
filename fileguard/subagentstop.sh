@@ -1,5 +1,11 @@
 #!/bin/bash
 # subagentstop.sh, hook JSON on stdin
+starttime() {
+    local STAT=''
+    { read -r STAT < "/proc/$1/stat"; } 2>/dev/null
+    cut -d' ' -f20 <<< "${STAT##*) }"
+}
+
 # [1] read event, session, agent; PROJ_FOLDER from $CLAUDE_PROJECT_DIR; LOCK_FOLDER from PROJ_FOLDER
 read -r EVENT SESSION AGENT < <(python3 -c '
 import json, sys
@@ -20,23 +26,27 @@ case $EVENT in
     SessionEnd) for f in "$LOCK_FOLDER/$SESSION"-*; do FORKS+=("$f"); done ;;
     SessionStart)
         for f in "$LOCK_FOLDER"/*-*; do
-            if [ -f "$f" ] && read -r _ _ _ FORK_CLAUDE < "$f" && ! kill -0 "$FORK_CLAUDE" 2>/dev/null; then FORKS+=("$f"); fi
+            if [ -f "$f" ] && read -r _ _ _ FORK_CLAUDE _ < "$f" && ! kill -0 "$FORK_CLAUDE" 2>/dev/null; then FORKS+=("$f"); fi
         done ;;
 esac
 
 for LOCK_FILE in "${FORKS[@]}"; do
     if [ ! -s "$LOCK_FILE" ]; then continue; fi
     # [3] kill the holder, last commit through sandbox.sh, kill the holder
-    read -r HOLDER BASE_COMMIT BRANCH _ < "$LOCK_FILE"
+    read -r HOLDER BASE_COMMIT BRANCH _ BORN < "$LOCK_FILE"
     FORK_SESSION=${BRANCH#saddler/}
     FORK_AGENT=${FORK_SESSION#*/}
     FORK_SESSION=${FORK_SESSION%%/*}
-    if [ "$HOLDER" != - ]; then kill -KILL "$HOLDER" 2>/dev/null; fi
-    for i in $(seq 1 500); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
+    if [ -n "$BORN" ] && [ "$(starttime "$HOLDER")" = "$BORN" ]; then
+        kill -KILL "$HOLDER" 2>/dev/null
+        for i in $(seq 1 500); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
+    fi
     CLAUDE_CODE_SESSION_ID=$FORK_SESSION "$CLAUDE_CODE_SHELL_PREFIX" "# saddler agent=$FORK_AGENT nolock"$'\n'"true" || continue
-    read -r HOLDER _ < "$LOCK_FILE"
-    if [ "$HOLDER" != - ]; then kill -KILL "$HOLDER" 2>/dev/null; fi
-    for i in $(seq 1 500); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
+    read -r HOLDER _ _ _ BORN < "$LOCK_FILE"
+    if [ -n "$BORN" ] && [ "$(starttime "$HOLDER")" = "$BORN" ]; then
+        kill -KILL "$HOLDER" 2>/dev/null
+        for i in $(seq 1 500); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
+    fi
     # [4] no new work: delete the branch
     if [ "$(git -C "$PROJ_FOLDER" rev-parse "refs/heads/$BRANCH")" = "$BASE_COMMIT" ]; then
         git -C "$PROJ_FOLDER" update-ref -d "refs/heads/$BRANCH"

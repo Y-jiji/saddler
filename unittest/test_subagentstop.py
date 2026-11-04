@@ -1,5 +1,7 @@
 """Correctness tests for subagentstop.sh, run in a confined hook shell."""
 
+import os
+import signal
 import subprocess
 import time
 import unittest
@@ -74,6 +76,18 @@ class StopTest(SandboxCase):
         self.assertTrue((self.lock / "s-1-a1").exists())
         self.assertEqual(subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode, 0)
         self.assertEqual(self.shell("# saddler agent=a1\ncat l.txt").stdout, "live\n")
+
+    def testreused(self) -> None:
+        self.shell("# saddler agent=a1\necho k > k.txt")
+        os.kill(self.holder("s-1", "a1"), signal.SIGKILL)
+        time.sleep(0.1)
+        other = self.newclaude()
+        record = (self.lock / "s-1-a1").read_text().split()
+        (self.lock / "s-1-a1").write_text(" ".join([str(other.pid)] + record[1:]) + "\n")
+        self.stopped()
+        self.assertIsNone(other.poll())
+        self.assertFalse((self.lock / "s-1-a1").exists())
+        self.assertEqual(git(self.root, "show", "saddler/s-1/a1:k.txt"), "k")
 
     def testkeepfail(self) -> None:
         self.shell("# saddler agent=a1\necho k > k.txt")
