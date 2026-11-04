@@ -1,6 +1,6 @@
-# Global registry for sandbox.sh: the paths visible inside the sandbox
+# Global registry for allowlist.sh: the paths visible inside the sandbox
 # besides the project, library and PATH directories. One `ro PATH` or
-# `rw PATH` per line, ~ expanded, missing paths skipped.
+# `rw PATH` or `private PATH STORE` per line, ~ expanded, missing paths skipped.
 ro /usr
 ro /etc
 ro /opt
@@ -23,3 +23,4 @@ rw ~/.gradle
 rw ~/.m2
 rw ~/.elan
 rw ~/.config/gcloud
+private ~/.ssh ~/.claude/sandbox/ssh

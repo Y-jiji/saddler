@@ -18,10 +18,11 @@ from typing import Final, TypeAlias
 ROOT: Final = "~/Documents/Project"
 OLD: Final = ("edit_guard.py", "edit_hint.py", "write_guard.py",
               "sessionstartsandbox.py", "pretoolusewrite.py")
-NEW: Final = ("pretoolusewrite.py",)
+NEW: Final = ("pretoolusewrite.py", "sessionstartsandbox.py", "subagentstop.sh")
+SESSION_START: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstartsandbox.py"'
 WRITE_GUARD: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/pretoolusewrite.py" || exit 2'
-MATCHER: Final = "Bash|Monitor|Write|Edit|NotebookEdit|Read|Grep|Glob"
-RELEASE: Final = "Write|Edit|NotebookEdit"
+AGENT_STOP: Final = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/subagentstop.sh" || exit 2'
+MATCHER: Final = "Agent|Bash|Monitor|Write|Edit|NotebookEdit|Read|Grep|Glob"
 Settings: TypeAlias = dict[str, object]
 
 
@@ -65,19 +66,22 @@ def strip(settings: Settings, project: Path) -> list[Path]:
 
 
 def register(settings: Settings) -> bool:
-    """Add the PreToolUse, PostToolUse and PostToolUseFailure entries for the
-    NEW hook unless that event already runs it; True when one was added. The
-    PreToolUse timeout outlasts the hook's wait for the mode lock."""
+    """Add the entries for the NEW hooks unless the event already runs them;
+    True when one was added."""
     hooks = settings.setdefault("hooks", {})
     added = False
-    for event, matcher, timeout in (("PreToolUse", MATCHER, 110),
-                                    ("PostToolUse", RELEASE, 10),
-                                    ("PostToolUseFailure", RELEASE, 10)):
+    for event, matcher, command, timeout in (("SessionStart", "", SESSION_START, 10),
+                                             ("SessionStart", "", AGENT_STOP, 110),
+                                             ("PreToolUse", MATCHER, WRITE_GUARD, 110),
+                                             ("PostToolUse", "TaskStop", AGENT_STOP, 110),
+                                             ("SubagentStop", "", AGENT_STOP, 110),
+                                             ("SessionEnd", "", AGENT_STOP, 110)):
         groups = hooks.setdefault(event, [])
-        if NEW[0] in json.dumps(groups):
+        if any(g.get("matcher", "") == matcher and any(h.get("command") == command for h in g.get("hooks", []))
+               for g in groups):
             continue
-        entry = {"type": "command", "command": WRITE_GUARD, "timeout": timeout}
-        groups.append({"matcher": matcher, "hooks": [entry]})
+        entry = {"type": "command", "command": command, "timeout": timeout}
+        groups.append({"matcher": matcher, "hooks": [entry]} if matcher else {"hooks": [entry]})
         added = True
     return added
 
@@ -94,7 +98,7 @@ def migrate(project: Path, apply: bool) -> list[str]:
         settings = json.loads(text)
     except (OSError, ValueError):
         return []
-    if "PostToolUseFailure" in text:
+    if "SessionEnd" in text:
         return []
     dropped = strip(settings, project)
     if not dropped:
@@ -108,7 +112,7 @@ def migrate(project: Path, apply: bool) -> list[str]:
     actions += ["delete " + os.path.relpath(p, project) for p in stale]
     actions += ["copy %s to .claude/hooks/" % name for name in NEW]
     if register(settings):
-        actions.append("register PreToolUse, PostToolUse and PostToolUseFailure")
+        actions.append("register SessionStart, PreToolUse, PostToolUse, SubagentStop and SessionEnd")
     if apply:
         hooksdir.mkdir(parents=True, exist_ok=True)
         for name in NEW:

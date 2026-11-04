@@ -1,29 +1,33 @@
 ---
 name: fileguard
-description: sandbox Bash and guard Write, Edit and NotebookEdit for this project
+description: sandbox Bash, give subagents and other sessions forks, and guard Write, Edit and NotebookEdit for this project
 disable-model-invocation: true
 ---
 
 Do these in order:
-1. Check `bwrap`, `flock` and `python3` are on `PATH`; if any is missing, stop and tell the user.
-2. From this skill's directory, copy `sandbox.sh` to `~/.claude/sandbox.sh`, and `sandbox.allow` to `~/.claude/sandbox/allow` unless that file already exists.
-3. Add `"env": {"CLAUDE_CODE_SHELL_PREFIX": "<absolute path of ~/.claude/sandbox.sh>"}` to `~/.claude/settings.json`.
-4. From this skill's directory, copy `pretoolusewrite.py` into `<project>/.claude/hooks/`.
-5. Register in `<project>/.claude/settings.json`, each running `python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/pretoolusewrite.py" || exit 2`:
-   - PreToolUse, matcher `Bash|Monitor|Write|Edit|NotebookEdit|Read|Grep|Glob`, timeout 110
-   - PostToolUse, matcher `Write|Edit|NotebookEdit`, timeout 10
-   - PostToolUseFailure, matcher `Write|Edit|NotebookEdit`, timeout 10
-6. Tell the user to restart claude, then check in the new session: `echo x > .git/config` fails with `Read-only file system`, `ls /run` fails, Write to a file outside the project is denied, a subagent's `echo x > f` leaves the real `f` unchanged and lands in `~/.claude/sandbox/overlay/<session>/<agent>/upper`, and a main Write waits while a subagent's command runs.
+1. Check `bwrap`, `flock`, `setsid`, `nsenter`, `tail`, `git` and `python3` are on `PATH`; if any is missing, stop and tell the user.
+2. From this skill's directory, copy `sandbox.sh`, `allowlist.sh`, `gitlock.sh`, `gitwrap.sh` and `overlayfork.sh` to `~/.claude/saddler/`, and `whitelist.txt` to `~/.claude/sandbox/` unless that file already exists.
+3. Add `"env": {"CLAUDE_CODE_SHELL_PREFIX": "<absolute path of ~/.claude/saddler/sandbox.sh>"}` to `~/.claude/settings.json`.
+4. From this skill's directory, copy `sessionstartsandbox.py`, `pretoolusewrite.py` and `subagentstop.sh` into `<project>/.claude/hooks/`.
+5. Register in `<project>/.claude/settings.json`. `<session>` is `python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstartsandbox.py"`, `<guard>` is `python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/pretoolusewrite.py" || exit 2`, and `<stop>` is `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/subagentstop.sh" || exit 2`:
+   - SessionStart: `<session>`, timeout 10, and `<stop>`, timeout 110
+   - PreToolUse, matcher `Agent|Bash|Monitor|Write|Edit|NotebookEdit|Read|Grep|Glob`: `<guard>`, timeout 110
+   - PostToolUse, matcher `TaskStop`: `<stop>`, timeout 110
+   - SubagentStop: `<stop>`, timeout 110
+   - SessionEnd: `<stop>`, timeout 110
+6. Tell the user to restart claude, then check in the new session: `echo x > .git/config` fails with `Read-only file system`, `ls /run` fails, Write to a file outside the project is denied, a subagent's `echo x > f` leaves the real `f` unchanged and lands on branch `saddler/<session-id>/<agent-id>`, and a second session's Bash does the same on `saddler/<session-id>/master`.
 
 Why:
-- `sandbox.sh` runs every shell Claude Code starts. For a command with a tag line, the shell runs in bwrap on an empty root holding only the host `/dev`, a fresh `/proc`, every library and `PATH` directory read-only, every dot entry in `~` read-only, the entries of `~/.claude/sandbox/allow`, and the project writable except `config` and `hooks` under every `.git`, every `.git` that is a file and every `.claude`. `~/.ssh` is a private directory with the real entries read-only inside, so ssh can keep ControlMaster sockets. Without a tag line, the shell runs unsandboxed.
-- `sandbox.allow` is the global registry: one `ro PATH` or `rw PATH` per line, `~` expanded, missing paths skipped.
-- The tag line, `# saddler root=<percent-encoded path> session=<id> agent=<id>`, is a comment `pretoolusewrite.py` puts first in every Bash and Monitor command. `sandbox.sh` finds it inside Claude Code's wrapper in `$1` and strips it. Only a subagent has an `agent`.
-- The wrapper format is undocumented and a missed tag line runs unguarded with no error, so repeat the step 6 checks after updating Claude Code.
-- A subagent's project is a private overlay: its writes land in `~/.claude/sandbox/overlay/<session>/<agent>/upper` and stay there, since nothing merges them. `$TMPDIR` and the `rw` entries of the registry stay shared.
-- No overlay may be mounted while its lower folder changes, so each project has a mode lock in `~/.claude/sandbox/lock/`: one mode at a time, subagents or one session's main, and calls in that mode run together. A call queues for its turn and fails after 100 seconds; a call holds its mode until its last process, background ones included, exits. One agent's own calls run one at a time, because only one mount can use an overlay. An editor or hook command that writes to the project takes no lock.
-- `pretoolusewrite.py` adds the tag line, denies Write, Edit and NotebookEdit on a path whose real path is outside the project, and denies Write, Edit, NotebookEdit, Read, Grep and Glob to subagents, because those tools bypass the overlay. For an allowed Write, Edit or NotebookEdit it holds the mode lock with a detached 60-second `sleep`, which PostToolUse and PostToolUseFailure end early.
-- The PreToolUse timeout of 110 outlasts the 100-second wait for the lock, so a long wait ends in a denial rather than a killed hook.
+- The first session to run a command, or to use Write, Edit or NotebookEdit, owns the project and works on the real files. Every other session, and every subagent, works on a fork.
+- A finished agent's or session's work stays on `saddler/<session-id>/<agent-id>`; merge it yourself with `git merge`. Nothing merges automatically.
+- A fork's project is the base commit plus its own writes. The base is `HEAD` at its first Bash call. Its `.git` is read-only, with `HEAD` and the index pinned to the base. Other branches stay visible by name. After each command, its files are committed to its branch as one commit whose parent is the base.
+- A fork may only use Bash, because Write, Edit, NotebookEdit, Read, Grep and Glob bypass it. A fork cannot start subagents. Forking needs a git repository with a commit.
+- One holder process per fork keeps its overlay mounted, so foreground commands, background commands and commits share one mount. Ending a fork ends its background commands. `SubagentStop`, `TaskStop` on an agent, `SessionEnd`, and `SessionStart` for a session whose Claude died all do this, make a last commit, and delete the fork.
+- `gitlock.sh` holds a read lock for each fork command, and `gitwrap.sh`, mounted over `git` for the owner, takes the write lock for each git command, because replacing `.git/index` or `.git/HEAD` removes the pins from a running command. A wait fails after 100 seconds. `run_in_background` and `Monitor` calls skip the read lock.
+- `allowlist.sh` runs a command in bwrap on an empty root holding only the host `/dev`, a fresh `/proc`, every library and `PATH` directory read-only, every dot entry in `~` read-only, the entries of `whitelist.txt`, and the project, with `config` and `hooks` under every `.git`, every `.git` that is a file and every `.claude` read-only.
+- `whitelist.txt` is the global registry: one `ro PATH`, `rw PATH` or `private PATH STORE` per line, `~` expanded, missing paths skipped. `private` makes `PATH` writable into `STORE`, with its real entries read-only inside, so ssh can keep ControlMaster sockets in `~/.ssh`.
+- State lives in `~/.claude/sandbox/project-<percent-encoded project folder>/`: `lock/`, and `session-<session-id>/` holding `agent-<agent-id>/{fork, work}`, `agent-master/` and `commit-<commit-hash>/{HEAD, index, tree}`. A session without that folder runs unsandboxed. `SessionStart` makes it, and `pretoolusewrite.py` makes it in print mode, where `SessionStart` does not fire.
+- Claude Code's wrapper format is undocumented and tool calls are told from hook shells by it, so repeat the step 6 checks after updating Claude Code.
 - Steps 2 and 3 come before step 5: once `pretoolusewrite.py` is registered, Write cannot reach `~/.claude`; once the prefix is live, neither can Bash.
-- A session or project on the old hooks sends no tag line, so it runs unguarded under this `sandbox.sh`: run `migrate.py --apply` outside the sandbox and restart every session.
+- A session or project on the old hooks runs unguarded under this `sandbox.sh`: run `migrate.py --apply` outside the sandbox and restart every session.
 - `|| exit 2` denies the call if the guard is broken, instead of running it unguarded.
