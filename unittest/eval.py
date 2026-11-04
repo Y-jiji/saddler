@@ -267,9 +267,9 @@ def main() -> int:
     ap.add_argument("--case", action="append", help="run only these case ids")
     ap.add_argument("--model", help="model under test")
     ap.add_argument("--judge-model", help="model used to grade")
-    ap.add_argument("--soul", type=Path, default=ROOT / "codeguide" / "CODE.md",
+    ap.add_argument("--soul", type=Path, default=ROOT / "codeguide" / "WORKFLOW.md",
                     help="rules file written as CLAUDE.md "
-                         "(default: codeguide/CODE.md)")
+                         "(default: codeguide/WORKFLOW.md)")
     args = ap.parse_args()
 
     suite = json.loads(args.suite.read_text())
