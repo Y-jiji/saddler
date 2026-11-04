@@ -272,9 +272,10 @@ class ShellTest(SandboxCase):
         self.assertEqual((self.lock / "owner.info").read_text().split()[1], "s-2")
 
     def testownerguard(self) -> None:
-        for path in (".claude/settings.json", ".git/config", ".git/hooks/evil"):
-            done = self.shell("echo x >> %s" % path)
-            self.assertIn("Read-only", done.stderr, path)
+        self.assertIn("Read-only", self.shell("echo x >> .claude/settings.json").stderr)
+        done = self.shell("git config saddler.check yes; echo rc=$?; git branch tmp; git branch -d tmp")
+        self.assertIn("rc=0", done.stdout, done.stderr)
+        self.assertEqual(done.stderr, "")
         hook = self.root / ".git" / "hooks" / "pre-commit"
         hook.write_text("#!/bin/sh\ngit rev-parse HEAD >/dev/null\n")
         hook.chmod(0o755)

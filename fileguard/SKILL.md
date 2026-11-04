@@ -15,7 +15,7 @@ Do these in order:
    - PostToolUse, matcher `TaskStop`: `<stop>`, timeout 110
    - SubagentStop: `<stop>`, timeout 110
    - SessionEnd: `<stop>`, timeout 110
-6. Tell the user to restart claude, then check in the new session: `echo x > .git/config` fails with `Read-only file system`, `ls /run` fails, Write to a file outside the project is denied, a subagent's `echo x > f` leaves the real `f` unchanged and lands on branch `saddler/<session-id>/<agent-id>`, and a second session's Bash does the same on `saddler/<session-id>/master`.
+6. Tell the user to restart claude, then check in the new session: `echo x > .claude/x` fails with `Read-only file system`, `ls /run` fails, Write to a file outside the project is denied, a subagent's `echo x > f` leaves the real `f` unchanged and lands on branch `saddler/<session-id>/<agent-id>`, and a second session's Bash does the same on `saddler/<session-id>/master`.
 
 Why:
 - The first session to run a command, or to use Write, Edit or NotebookEdit, owns the project and works on the real files. Every other session, and every subagent, works on a fork.
@@ -24,7 +24,7 @@ Why:
 - A fork may only use Bash, because Write, Edit, NotebookEdit, Read, Grep and Glob bypass it. A fork cannot start subagents. Forking needs a git repository with a commit.
 - One holder process per fork keeps its overlay mounted, so foreground commands, background commands and commits share one mount. Ending a fork ends its background commands. `SubagentStop`, `TaskStop` on an agent, `SessionEnd`, and `SessionStart` for a session whose Claude died all do this, make a last commit, and delete the fork.
 - `gitlock.sh` holds a read lock for each fork command, and `gitwrap.sh`, mounted over `git` for the owner, takes the write lock for each git command, because replacing `.git/index` or `.git/HEAD` removes the pins from a running command. A wait fails after 100 seconds. `run_in_background` and `Monitor` calls skip the read lock.
-- `allowlist.sh` runs a command in bwrap on an empty root holding only the host `/dev`, a fresh `/proc`, every library and `PATH` directory read-only, every dot entry in `~` read-only, the entries of `whitelist.txt`, and the project, with `config` and `hooks` under every `.git`, every `.git` that is a file and every `.claude` read-only.
+- `allowlist.sh` runs a command in bwrap on an empty root holding only the host `/dev`, a fresh `/proc`, every library and `PATH` directory read-only, every dot entry in `~` read-only, the entries of `whitelist.txt`, and the project, with every `.claude` read-only.
 - `whitelist.txt` is the global registry: one `ro PATH`, `rw PATH` or `private PATH STORE` per line, `~` expanded, missing paths skipped. `private` makes `PATH` writable into `STORE`, with its real entries read-only inside, so ssh can keep ControlMaster sockets in `~/.ssh`.
 - State lives in `~/.claude/sandbox/project-<percent-encoded project folder>/`: `lock/`, and `session-<session-id>/` holding `agent-<agent-id>/{fork, work}`, `agent-master/` and `commit-<commit-hash>/{HEAD, index, tree}`. A session without that folder runs unsandboxed. `SessionStart` makes it, and `pretoolusewrite.py` makes it in print mode, where `SessionStart` does not fire.
 - Claude Code's wrapper format is undocumented and tool calls are told from hook shells by it, so repeat the step 6 checks after updating Claude Code.

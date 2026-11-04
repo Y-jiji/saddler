@@ -51,8 +51,6 @@ args+=("${MOUNTS[@]}")
 # [7] read-only under SCAN_FOLDER, placed under PROJ_FOLDER
 while IFS= read -r -d '' p; do
     args+=(--ro-bind "$p" "$PROJ_FOLDER${p#"$SCAN_FOLDER"}")
-done < <(find "$SCAN_FOLDER" ! -type l \
-    \( \( -name .claude -o -name .git -type f \) -prune -print0 \
-    -o -path '*/.git/*' \( -name config -o -name hooks \) -prune -print0 \))
+done < <(find "$SCAN_FOLDER" ! -type l -name .claude -prune -print0)
 wait $! || { echo "allowlist.sh: cannot scan $SCAN_FOLDER" >&2; exit 1; }
 exec bwrap "${args[@]}" --remount-ro / -- "$@"

@@ -24,12 +24,12 @@ class AllowTest(SandboxCase):
         self.assertIn("git version", done.stdout)
 
     def testguard(self) -> None:
-        nested = self.root / "sub" / ".git" / "hooks"
-        nested.mkdir(parents=True)
-        for path in (".claude/x", ".git/hooks/x", "sub/.git/hooks/x"):
-            self.assertIn("Read-only", self.allow("echo x > %s" % path).stderr, path)
-        self.assertIn("Read-only", self.allow("echo x >> .git/config").stderr)
-        self.assertEqual(self.allow("echo x > .git/fine").returncode, 0)
+        self.assertIn("Read-only", self.allow("echo x > .claude/x").stderr)
+        (self.root / "sub" / ".claude").mkdir(parents=True)
+        self.assertIn("Read-only", self.allow("echo x > sub/.claude/x").stderr)
+        done = self.allow("echo x >> .git/config; touch .git/hooks/x; echo x > .git/fine; echo rc=$?")
+        self.assertEqual(done.stdout, "rc=0\n", done.stderr)
+        self.assertEqual(done.stderr, "")
 
     def testprivate(self) -> None:
         done = self.allow("echo sock > ~/.ssh/sock; cat ~/.ssh/config; echo x >> ~/.ssh/config")
