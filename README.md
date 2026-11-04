@@ -67,7 +67,7 @@ Known limits:
 Not yet verified:
 - [ ] TEST1: A real preemption or period-driven checkpoint with a live subagent.
 - [ ] TEST2: A real interrupted move and its recovery.
-- [ ] TEST3: A second session running as a fork in live use.
+- [ ] TEST3: A second session running as a fork in live use, including its `!` commands taking the fork path.
 - [ ] TEST4: A real `cargo` build on a large `target/`.
 - [ ] TEST5: A project-level `env` block reaching `sandbox.sh`, and whether a running session picks up a change.
 - [ ] TEST6: Model gaps: the two-fork run was partial, two owners were never combined with interrupts, new-owner recovery never finished a full search, and ignored-list changes are not modelled.
