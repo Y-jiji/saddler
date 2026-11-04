@@ -6,6 +6,16 @@ set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 
+# fileguard's shell scripts and registry, which run outside the project
+SADDLER="$HOME/.claude/saddler"
+BOX="$HOME/.claude/sandbox"
+mkdir -p "$SADDLER" "$BOX"
+for NAME in sandbox allowlist gitlock gitwrap overlayfork; do
+    install -m 755 "$SRC/fileguard/$NAME.sh" "$SADDLER/$NAME.sh"
+done
+[ -e "$BOX/whitelist.txt" ] || cp "$SRC/fileguard/whitelist.txt" "$BOX/whitelist.txt"
+echo "installed fileguard scripts -> $SADDLER"
+
 for SKILL in "$SRC"/*/SKILL.md; do
     DIR="$(dirname "$SKILL")"
     NAME="$(sed -n '/^---$/,/^---$/{s/^name:[[:space:]]*//p}' "$SKILL" | head -1)"
