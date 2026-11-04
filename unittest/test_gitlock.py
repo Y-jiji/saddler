@@ -64,7 +64,8 @@ class LockTest(SandboxCase):
         (self.root / "n.txt").write_text("n\n")
         done = subprocess.run([str(self.saddler / "allowlist.sh"), str(self.root), str(self.root),
                                "--bind", str(self.root), str(self.root),
-                               "--ro-bind", real, "/.realgit", "--ro-bind", str(self.saddler / "gitwrap.sh"), real,
+                               "--ro-bind", "/.realgit" if os.path.exists("/.realgit") else real, "/.realgit",
+                               "--ro-bind", str(self.saddler / "gitwrap.sh"), real,
                                "--setenv", "GIT_WRAPPER", wrapper, "--chdir", str(self.root), "--", "bash", "-c",
                                "git add n.txt; git commit -qm n; echo rc=$?; git rev-parse -q --verify nope; echo rc=$?"],
                               capture_output=True, text=True, env=self.environ("s-1", self.first), timeout=30)
@@ -75,7 +76,8 @@ class LockTest(SandboxCase):
         wrapper = shlex.join([str(self.saddler / "gitlock.sh"), str(self.lock), "write", "30", "/.realgit"])
         done = subprocess.run([str(self.saddler / "allowlist.sh"), str(self.root), str(self.root),
                                "--bind", str(self.root), str(self.root),
-                               "--ro-bind", real, "/.realgit", "--ro-bind", str(self.saddler / "gitwrap.sh"), real,
+                               "--ro-bind", "/.realgit" if os.path.exists("/.realgit") else real, "/.realgit",
+                               "--ro-bind", str(self.saddler / "gitwrap.sh"), real,
                                "--setenv", "GIT_WRAPPER", wrapper, "--chdir", str(self.root), "--", "bash", "-c",
                                "git push -q . HEAD:pushed; echo rc=$?; git fetch -q . HEAD:fetched; echo rc=$?; git clone -q . copy; echo rc=$?"],
                               capture_output=True, text=True, env=self.environ("s-1", self.first), timeout=30)

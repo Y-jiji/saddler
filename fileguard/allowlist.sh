@@ -41,6 +41,7 @@ while read -r MODE WPATH STORE; do
     esac
 done < "$HOME/.claude/sandbox/whitelist.txt"
 if [ -d "${TMPDIR:-}" ]; then args+=(--bind "$TMPDIR" "$TMPDIR"); fi
+if [ -e /.realgit ]; then args+=(--ro-bind /.realgit "$(readlink -f "$(command -v git)")"); fi
 # [5] empty covers: X11, Claude daemon sockets, ssh drop-ins
 for d in /tmp/.X11-unix "/tmp/cc-daemon-$UID" /etc/ssh/ssh_config.d; do
     if [ -d "$d" ]; then args+=(--tmpfs "$d" --remount-ro "$d"); fi

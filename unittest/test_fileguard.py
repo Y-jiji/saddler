@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -299,6 +300,11 @@ class ShellTest(SandboxCase):
         self.assertIn("Read-only", done.stderr)
         self.assertTrue((self.lock / "ok").exists())
         self.assertFalse((self.lock / "owner.info").exists())
+
+    def testnested(self) -> None:
+        inner = shlex.quote(WRAPPER % "git rev-parse HEAD")
+        done = self.shell('H="$TMPDIR/inner"; mkdir -p "$H"; cp -r ~/.claude "$H/"; HOME="$H" "$H/.claude/saddler/sandbox.sh" %s' % inner)
+        self.assertEqual(done.stdout.strip(), self.base, done.stderr)
 
 
 if __name__ == "__main__":

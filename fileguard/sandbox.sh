@@ -69,9 +69,11 @@ fi
 # [6] owner
 if [ -z "$AGENT" ]; then
     GIT=$(readlink -f "$(command -v git)")
+    REAL_GIT=$GIT
+    if [ -e /.realgit ]; then REAL_GIT=/.realgit; fi
     printf -v GIT_WRAPPER '%q ' "$HERE/gitlock.sh" "$LOCK_FOLDER" write 100 /.realgit
     exec "$HERE/allowlist.sh" "$PROJ_FOLDER" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" \
-        --ro-bind "$GIT" /.realgit --ro-bind "$HERE/gitwrap.sh" "$GIT" --setenv GIT_WRAPPER "$GIT_WRAPPER" \
+        --ro-bind "$REAL_GIT" /.realgit --ro-bind "$HERE/gitwrap.sh" "$GIT" --setenv GIT_WRAPPER "$GIT_WRAPPER" \
         --chdir "$PWD" -- bash -c -- "$RUN"
 fi
 
