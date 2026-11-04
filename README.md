@@ -51,7 +51,6 @@ Agent's intelligence dilutes with context length. User must know that.
 ## fileguard
 
 Bugs and risks:
-- [ ] BUG1: Writers outside the protocol: a terminal or hook writing to a shared ignored folder while a fork is live can bring back the wrong binary.
 - [ ] BUG2: Marker trap: after an interrupted move with the owner gone, forks stay blocked until a new session runs a command, and their error message does not say so.
 - [ ] BUG3: Hidden left-behind processes: a process in its own nested namespace escapes the owner's scan, so the upper stays busy and holder starts fail with `EBUSY`.
 - [ ] BUG4: List-only checkpoints: a new ignored file or folder counts as a change, so it can kill running fork commands at the next tick with no owner writes.
@@ -62,6 +61,7 @@ Known limits:
 - [ ] LIMIT2: Real ignored folders can lag while a fork is alive or a long owner command runs, and from the owner's last command until its next, because session end does not flush them.
 - [ ] LIMIT3: A fork command longer than period plus wait can be killed at every tick, and nothing warns about this.
 - [ ] LIMIT4: Each base copies single ignored files in full, however big they are.
+- [ ] LIMIT5: Writers outside Claude: a terminal or editor writing to a shared ignored folder under a live holder, the owner's or a fork's, gives that holder an inconsistent view, and a build there can make a fork run the wrong binary. Assumes fileguard's hooks are the only hooks.
 
 Not yet verified:
 - [ ] TEST1: A real preemption or period-driven checkpoint with a live subagent.
