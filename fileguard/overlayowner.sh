@@ -41,7 +41,8 @@ if [ -z "$HOLDER" ] || ! kill -0 "$HOLDER" 2>/dev/null ||
     START=$(mktemp -d) || exit 1
     mkfifo "$START/go" || exit 1
     exec 192<>"$START/go"
-    setsid "${HOLD[@]}" "${OVERLAYS[@]}" --info-fd 9 --chdir / -- bash -c 'echo ready >&8; read -r _ <&7 && exec sleep infinity 7<&-' \
+    setsid "${HOLD[@]}" --unshare-pid --proc /proc "${OVERLAYS[@]}" \
+        --info-fd 9 --chdir / -- bash -c 'echo ready >&8; read -r _ <&7 && exec sleep infinity 7<&-' \
         7<"$START/go" 8>"$START/ready" 9>"$START/info" 192>&- 194<&- 195>&- </dev/null >/dev/null 2>"$START/err" &
     for i in $(seq 1 300); do
         if [ -s "$START/ready" ]; then break; fi
@@ -60,10 +61,9 @@ if [ -z "$HOLDER" ] || ! kill -0 "$HOLDER" 2>/dev/null ||
     setsid bash -c '
         while kill -0 "$0" 2>/dev/null && kill -0 "$1" 2>/dev/null; do sleep 1; done
         while kill -0 "$1" 2>/dev/null; do
-            NS=$(readlink "/proc/$1/ns/mnt")
             if [ ! -e "$2" ]; then
                 kill -KILL "$1"
-            elif [ "$(readlink /proc/[0-9]*/ns/mnt 2>/dev/null | grep -Fxc "$NS")" -le 1 ]; then
+            elif [ "$(cat "/proc/$1/task/$1/children" 2>/dev/null | wc -w)" -le 1 ]; then
                 flock -n "$2" kill -KILL "$1"
             fi
             sleep 1
@@ -73,7 +73,7 @@ flock -u 195
 
 # [3] execute command: tracked files and .git are real, ignored folders are overlays
 rc=0
-nsenter -t "$HOLDER" -U -m --preserve-credentials -- \
+nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- \
     env -C "$PWD" GIT_WRAPPER="$GIT_WRAPPER" "$@" 194<&- 195>&- || rc=$?
 
 # [4] only the last owner command running may checkpoint
@@ -98,9 +98,10 @@ if [ ! -e "$MARKER" ]; then
     if [ -n "$FORKED" ] && [ $((NOW - LAST)) -lt "$PERIOD" ]; then exit "$rc"; fi
 fi
 
-# [6] a process left in the holder's namespace still uses the overlay: never kill the owner
-NS=$(readlink "/proc/$HOLDER/ns/mnt" 2>/dev/null)
-if [ -n "$NS" ] && [ "$(readlink /proc/[0-9]*/ns/mnt 2>/dev/null | grep -Fxc "$NS")" -gt 1 ]; then exit "$rc"; fi
+# [6] a process left in the holder's PID namespace still uses the overlay: never kill the owner
+for i in 1 2; do
+    if [ "$(cat "/proc/$HOLDER/task/$HOLDER/children" 2>/dev/null | wc -w)" -gt 1 ]; then exit "$rc"; fi
+done
 
 # [7] close the gate, give fork commands the wait, kill every fork holder
 killforks() {
@@ -125,8 +126,8 @@ fi
 killforks
 
 # [8] kill the owner's holder
-if [ -n "$NS" ]; then
-    kill -KILL "$HOLDER" 2>/dev/null
+if kill -0 "$HOLDER" 2>/dev/null; then
+    kill -KILL "$HOLDER"
     for i in $(seq 1 500); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
 fi
 : > "$LOCK_FOLDER/ownerholder"

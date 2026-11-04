@@ -51,7 +51,7 @@ Agent's intelligence dilutes with context length. User must know that.
 ## fileguard
 
 Bugs and risks:
-- [ ] BUG3: Hidden left-behind processes: a process in its own nested namespace escapes the owner's scan, so the upper stays busy and holder starts fail with `EBUSY`.
+- [x] BUG3: Hidden left-behind processes: fixed by giving the owner's holder a PID namespace, which also hides host processes from owner commands.
 - [ ] BUG4: List-only checkpoints: a new ignored file or folder counts as a change, so it can kill running fork commands at the next tick with no owner writes.
 - [ ] BUG5: PID reuse: the fork path trusts `kill -0` on a recorded PID, while the owner path also checks the namespace.
 

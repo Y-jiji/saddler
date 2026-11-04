@@ -107,8 +107,8 @@ class OwnerTest(OwnerCase):
         done = self.shell("echo ran")
         self.assertEqual(done.stdout, "ran\n", done.stderr)
 
-    def testhostpid(self) -> None:
-        self.assertEqual(self.shell("cat /proc/%d/comm" % self.first.pid).stdout, "sleep\n")
+    def testhidden(self) -> None:
+        self.assertNotIn("300", self.shell("cat /proc/%d/cmdline" % self.first.pid).stdout)
 
     def testnogit(self) -> None:
         shutil.rmtree(self.root / ".git")
@@ -174,6 +174,24 @@ class TriggerTest(OwnerCase):
         self.shell("true")
         self.assertEqual((self.target / "x").read_text(), "x\n")
         self.assertEqual((self.target / "d").read_text(), "d\n")
+
+    def testnested(self) -> None:
+        self.shell("(unshare -Urm bash -c 'sleep 1; echo n > target/n') >/dev/null 2>&1 </dev/null & "
+                   "sleep 0.2; echo x > target/x")
+        self.assertFalse((self.target / "x").exists())
+        time.sleep(1.2)
+        self.shell("true")
+        self.assertEqual((self.target / "x").read_text(), "x\n")
+        self.assertEqual((self.target / "n").read_text(), "n\n")
+
+    def testfdclosed(self) -> None:
+        program = "import os; os.closerange(3, 256); os.execvp('bash', ['bash', '-c', 'sleep 1; echo f > target/f'])"
+        self.shell('python3 -c "%s" >/dev/null 2>&1 </dev/null & sleep 0.2; echo x > target/x' % program)
+        self.assertFalse((self.target / "x").exists())
+        time.sleep(1.2)
+        self.shell("true")
+        self.assertEqual((self.target / "x").read_text(), "x\n")
+        self.assertEqual((self.target / "f").read_text(), "f\n")
 
     def testwait(self) -> None:
         self.shell("# saddler agent=a1\ntrue")
