@@ -12,7 +12,7 @@ BOX=$HOME/.claude/sandbox
 export CLAUDE_PID=${CLAUDE_PID:-$PPID}
 SESSION=${CLAUDE_CODE_SESSION_ID:-}
 
-# [1] look up the session folder; without one, run unsandboxed
+# [1] look up the session folder; without one, run unsandboxed; the old version's gate folder lock/checkpoint/ goes
 SESSION_FOLDER=''
 if [[ $SESSION =~ ^[A-Za-z0-9-]+$ ]]; then
     for d in "$BOX"/project-*/session-"$SESSION"; do
@@ -25,6 +25,7 @@ ENCODED=${STATE_FOLDER##*/project-}
 PROJ_FOLDER=$(printf '%b' "${ENCODED//%/\\x}")
 LOCK_FOLDER=$STATE_FOLDER/lock
 mkdir -p "$LOCK_FOLDER"
+if [ -d "$LOCK_FOLDER/checkpoint" ]; then rm -rf "$LOCK_FOLDER/checkpoint"; fi
 touch "$LOCK_FOLDER/gate" "$LOCK_FOLDER/checkpoint"
 
 # [2] split the tag out of the invocation; an old hook may still add nolock

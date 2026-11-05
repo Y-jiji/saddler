@@ -255,6 +255,14 @@ class ShellTest(SandboxCase):
         self.assertIn("checkpoint is running", done.stderr)
         self.assertEqual(self.shell("echo ran").stdout, "ran\n")
 
+    def testupgrade(self) -> None:
+        (self.lock / "checkpoint").mkdir(parents=True)
+        for name in ("queue", "mode"):
+            (self.lock / "checkpoint" / name).touch()
+        done = self.shell("echo ran")
+        self.assertEqual(done.stdout, "ran\n", done.stderr)
+        self.assertTrue((self.lock / "checkpoint").is_file())
+
     def testhookshell(self) -> None:
         done = subprocess.run([str(self.saddler / "sandbox.sh"), "cat '%s/hidden'; echo x > .claude/y; touch '%s/ok'" % (self.home, self.lock)],
                               capture_output=True, text=True, env=self.environ("s-1", self.first), cwd=self.root)
