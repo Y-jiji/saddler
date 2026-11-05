@@ -1,5 +1,6 @@
 """Correctness tests for the fileguard hooks and sandbox.sh."""
 
+import fcntl
 import json
 import os
 import shlex
@@ -16,8 +17,7 @@ from urllib.parse import quote
 REPO: Final = Path(__file__).resolve().parent.parent
 FILEGUARD: Final = REPO / "fileguard"
 HOOK: Final = FILEGUARD / "pretoolusewrite.py"
-SCRIPTS: Final = ("sandbox.sh", "allowlist.sh", "gitlock.sh", "gitwrap.sh", "overlayfork.sh", "subagentstop.sh",
-                  "overlayowner.sh")
+SCRIPTS: Final = ("sandbox.sh", "allowlist.sh", "overlayfork.sh", "checkpoint.sh", "requestcheckpoint.sh")
 WRAPPER: Final = "source /dev/null 2>/dev/null || true && eval '%s' < /dev/null"
 WHITELIST: Final = "ro /usr\nro /etc\nprivate ~/.ssh ~/.claude/sandbox/ssh\n"
 
@@ -48,7 +48,7 @@ class SandboxCase(unittest.TestCase):
         (self.home / ".ssh" / "config").write_text("real\n")
         self.root = self.home / "my proj"
         self.root.mkdir()
-        git(self.root, "init", "-q")
+        git(self.root, "init", "-q", "-b", "main")
         git(self.root, "config", "user.name", "t")
         git(self.root, "config", "user.email", "t@t")
         (self.root / ".claude").mkdir()
@@ -97,13 +97,6 @@ class SandboxCase(unittest.TestCase):
         return subprocess.run([str(self.saddler / "sandbox.sh"), invocation], capture_output=True, text=True,
                               env=self.environ(session, claude or self.first), cwd=cwd or self.root, timeout=60)
 
-    def event(self, payload: dict[str, object], session: str = "s-1",
-              claude: subprocess.Popen[bytes] | None = None) -> subprocess.CompletedProcess[str]:
-        """Run subagentstop.sh in a hook shell, confined as Claude Code would."""
-        return subprocess.run([str(self.saddler / "sandbox.sh"), "bash %s" % (self.saddler / "subagentstop.sh")],
-                              input=json.dumps(payload), capture_output=True, text=True,
-                              env=self.environ(session, claude or self.first), cwd=self.root, timeout=60)
-
     def holder(self, session: str, agent: str) -> int:
         """The holder PID in a fork's lock file."""
         return int((self.lock / ("%s-%s" % (session, agent))).read_text().split()[0])
@@ -113,7 +106,7 @@ class SandboxCase(unittest.TestCase):
         for claude in self.claudes:
             claude.kill()
             claude.wait()
-        for path in self.lock.glob("*-*"):
+        for path in self.lock.glob("*-*") if self.lock.is_dir() else []:
             word = path.read_text().split()[0]
             if word.isdigit():
                 try:
@@ -129,19 +122,16 @@ class HookTest(SandboxCase):
     def runhook(self, payload: dict[str, object], claude: subprocess.Popen[bytes] | None = None) -> dict[str, object]:
         """The hook's parsed output, empty when it prints nothing."""
         done = subprocess.run(["python3", str(HOOK)], input=json.dumps({"session_id": "s-1", **payload}),
-                              capture_output=True, text=True, check=True,
-                              env=self.environ("s-1", claude or self.first))
+                              capture_output=True, text=True, check=True, cwd=self.root,
+                              env=self.environ("s-1", claude or self.first), timeout=60)
         return json.loads(done.stdout) if done.stdout else {}
 
     def testbash(self) -> None:
         self.assertEqual(self.runhook({"tool_name": "Bash", "tool_input": {"command": "ls"}}), {})
-
-    def testmonitor(self) -> None:
-        output = self.runhook({"tool_name": "Monitor", "tool_input": {"command": "ls"}})
-        self.assertEqual(output["hookSpecificOutput"]["updatedInput"]["command"], "# saddler nolock\nls")
+        self.assertEqual(self.runhook({"tool_name": "Monitor", "tool_input": {"command": "ls"}}), {})
 
     def testagent(self) -> None:
-        output = self.runhook({"tool_name": "Bash", "agent_id": "a1", "tool_input": {"command": "ls"}})
+        output = self.runhook({"tool_name": "Monitor", "agent_id": "a1", "tool_input": {"command": "ls"}})
         self.assertEqual(output["hookSpecificOutput"]["updatedInput"]["command"], "# saddler agent=a1\nls")
 
     def testinput(self) -> None:
@@ -151,55 +141,37 @@ class HookTest(SandboxCase):
         self.assertEqual(updated["command"].split("\n", 1)[1], tooluse["command"])
         self.assertEqual({**updated, "command": tooluse["command"]}, tooluse)
 
-    def testnolock(self) -> None:
-        output = self.runhook({"tool_name": "Bash", "tool_input": {"command": "ls", "run_in_background": True}})
-        self.assertEqual(output["hookSpecificOutput"]["updatedInput"]["command"], "# saddler nolock\nls")
-        output = self.runhook({"tool_name": "Monitor", "agent_id": "a1", "tool_input": {"command": "ls"}})
-        self.assertEqual(output["hookSpecificOutput"]["updatedInput"]["command"], "# saddler agent=a1 nolock\nls")
-
-    def testfiledeny(self) -> None:
-        for tool in ("Write", "Edit", "NotebookEdit", "Read", "Grep", "Glob"):
-            output = self.runhook({"tool_name": tool, "agent_id": "a1", "tool_input": {}})
+    def testsearch(self) -> None:
+        for tool in ("Grep", "Glob"):
+            output = self.runhook({"tool_name": tool, "tool_input": {"pattern": "x"}})
             self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny", tool)
 
-    def testoutside(self) -> None:
-        output = self.runhook({"tool_name": "Write", "tool_input": {"file_path": "/outside/x"}})
-        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertEqual(self.runhook({"tool_name": "Write", "tool_input": {"file_path": str(self.root / "x")}}), {})
+    def testview(self) -> None:
+        self.shell("# saddler agent=a1\necho mine > a.txt")
+        for agent, text in (("a1", "mine\n"), (None, "two\n")):
+            payload = {"tool_name": "Read", "tool_input": {"file_path": str(self.root / "a.txt")}}
+            output = self.runhook({**payload, "agent_id": agent} if agent else payload)
+            path = output["hookSpecificOutput"]["updatedInput"]["file_path"]
+            self.assertTrue(path.startswith("/proc/") and path.endswith(str(self.root / "a.txt")), path)
+            self.assertEqual(Path(path).read_text(), text)
+
+    def testwrite(self) -> None:
+        output = self.runhook({"tool_name": "Write", "tool_input": {"file_path": str(self.root / "w.txt"), "content": "w"}})
+        Path(output["hookSpecificOutput"]["updatedInput"]["file_path"]).write_text("w\n")
+        self.assertFalse((self.root / "w.txt").exists())
+        self.assertEqual(self.shell("cat w.txt").stdout, "w\n")
 
     def testrecord(self) -> None:
-        self.runhook({"session_id": "s-9", "tool_name": "Read", "tool_input": {}})
+        self.runhook({"session_id": "s-9", "tool_name": "Bash", "tool_input": {"command": "ls"}})
         self.assertTrue((self.state / "session-s-9").is_dir())
         subprocess.run(["python3", str(FILEGUARD / "sessionstartsandbox.py")], check=True, text=True,
                        input=json.dumps({"session_id": "s-8"}), env=self.environ("s-8", self.first))
         self.assertTrue((self.state / "session-s-8").is_dir())
 
-    def testclaim(self) -> None:
-        self.runhook({"tool_name": "Read", "tool_input": {"file_path": str(self.root / "a.txt")}})
-        self.assertFalse((self.lock / "owner.info").exists())
-        write = {"tool_name": "Write", "tool_input": {"file_path": str(self.root / "x")}}
-        self.assertEqual(self.runhook(write), {})
-        self.assertEqual((self.lock / "owner.info").read_text().split()[1], "s-1")
-        self.assertEqual(self.runhook(write), {})
-        output = self.runhook({**write, "session_id": "s-2"}, self.newclaude())
-        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("s-1", output["hookSpecificOutput"]["permissionDecisionReason"])
-
-    def testforkdeny(self) -> None:
-        self.lock.mkdir(parents=True, exist_ok=True)
-        (self.lock / "s-1-master").write_text("- x y 1\n")
-        for tool in ("Write", "Read", "Grep", "Glob", "Agent"):
-            output = self.runhook({"tool_name": tool, "tool_input": {}})
-            self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny", tool)
-        self.assertEqual(self.runhook({"tool_name": "Bash", "tool_input": {"command": "ls"}}), {})
-
     def testspawn(self) -> None:
         spawn = {"tool_name": "Agent", "tool_input": {}}
         self.assertEqual(self.runhook(spawn), {})
-        self.assertFalse((self.lock / "owner.info").exists())
-        self.runhook({"tool_name": "Write", "tool_input": {"file_path": str(self.root / "x")}})
-        output = self.runhook({**spawn, "session_id": "s-2"}, self.newclaude())
-        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(self.runhook({**spawn, "session_id": "s-2"}, self.newclaude()), {})
         git(self.root, "checkout", "-q", "--orphan", "empty")
         output = self.runhook(spawn)
         self.assertIn("not a git repository", output["hookSpecificOutput"]["permissionDecisionReason"])
@@ -216,16 +188,18 @@ class ShellTest(SandboxCase):
     def teststrip(self) -> None:
         done = self.shell("# saddler agent=a1\necho $LINENO 'a b'")
         self.assertEqual(done.stdout, "1 a b\n", done.stderr)
+        done = self.shell("# saddler agent=a1 nolock\necho old")
+        self.assertEqual(done.stdout, "old\n", done.stderr)
 
     def testconfined(self) -> None:
         done = self.shell("echo made > made; cat '%s/hidden'; cat target/art" % self.home)
-        self.assertEqual((self.root / "made").read_text(), "made\n", done.stderr)
         self.assertIn("No such file", done.stderr)
         self.assertEqual(done.stdout, "art\n")
+        self.assertFalse((self.root / "made").exists())
+        self.assertEqual(self.shell("cat made").stdout, "made\n")
 
     def testoverlay(self) -> None:
-        done = self.shell("# saddler agent=a1\necho changed > a.txt; cat target/art")
-        self.assertIn("No such file", done.stderr)
+        self.shell("# saddler agent=a1\necho changed > a.txt")
         self.assertEqual((self.root / "a.txt").read_text(), "two\n")
         self.assertEqual(self.shell("# saddler agent=a1\ncat a.txt").stdout, "changed\n")
         self.assertEqual(self.shell("# saddler agent=a2\ncat a.txt").stdout, "two\n")
@@ -233,67 +207,53 @@ class ShellTest(SandboxCase):
 
     def testlayout(self) -> None:
         self.shell("# saddler agent=a1\ntrue")
-        fork = self.state / "session-s-1"
-        self.assertEqual({p.name for p in (fork / "agent-a1").iterdir()}, {"fork", "work"})
-        self.assertEqual({p.name for p in (fork / ("commit-" + self.base)).iterdir()}, {"HEAD", "index", "tree"})
-        self.assertEqual({p.name for p in self.state.iterdir()}, {"lock", "session-s-1"})
-        words = (self.lock / "s-1-a1").read_text().split()
-        self.assertEqual(words[1:3], [self.base, "saddler/s-1/a1"])
-        self.assertEqual(git(self.root, "rev-parse", "saddler/s-1/a1"), self.base)
+        agent = self.state / "session-s-1" / "agent-a1"
+        self.assertEqual({p.name for p in agent.iterdir()}, {"fork", "work", "git"})
+        self.assertEqual({p.name for p in self.state.iterdir()}, {"lock", "session-s-1", "realgit"})
+        self.assertEqual((self.lock / "s-1-a1").read_text().split()[1:3], ["0", "session-s-1/agent-a1"])
+        self.assertEqual(git(self.root, "rev-parse", "session-s-1/agent-a1"), self.base)
+        self.assertEqual((self.lock / "base").read_text().strip(), self.base)
+        self.assertEqual(git(self.root, "config", "gc.pruneExpire"), "never")
+
+    def testcommit(self) -> None:
+        done = self.shell("echo mine > a.txt; git commit -qam mine; git log -1 --format=%s")
+        self.assertEqual(done.stdout, "mine\n", done.stderr)
+        self.assertEqual((self.root / "a.txt").read_text(), "two\n")
+        self.assertEqual(git(self.root, "show", "session-s-1/agent-master:a.txt"), "mine")
+        self.assertEqual(git(self.root, "rev-parse", "main"), self.base)
 
     def testotherfork(self) -> None:
-        self.assertEqual(self.shell("echo mine > a.txt").returncode, 0)
+        self.shell("echo mine > a.txt; git commit -qam mine")
         self.session("s-2")
-        second = self.newclaude()
-        done = self.shell("cat a.txt; echo theirs > a.txt", "s-2", second)
-        self.assertEqual(done.stdout, "two\n", done.stderr)
-        self.assertEqual((self.root / "a.txt").read_text(), "mine\n")
-        self.assertEqual(git(self.root, "show", "saddler/s-2/master:a.txt"), "theirs")
-        self.assertTrue((self.state / "session-s-2" / "agent-master" / "fork").is_dir())
+        done = self.shell("cat a.txt; git log -1 --format=%s saddler/session-s-1/agent-master", "s-2", self.newclaude())
+        self.assertEqual(done.stdout, "two\nmine\n", done.stderr)
 
-    def testforkstays(self) -> None:
-        self.shell("true")
-        self.session("s-2")
-        second = self.newclaude()
-        self.shell("true", "s-2", second)
-        self.first.kill()
-        self.first.wait()
-        time.sleep(1.3)
-        self.shell("echo still > f.txt", "s-2", second)
-        self.assertFalse((self.root / "f.txt").exists())
-
-    def testnewowner(self) -> None:
-        self.shell("true")
-        self.first.kill()
-        self.first.wait()
-        time.sleep(1.3)
-        self.session("s-2")
-        self.shell("echo real > f.txt", "s-2", self.newclaude())
-        self.assertEqual((self.root / "f.txt").read_text(), "real\n")
-        self.assertEqual((self.lock / "owner.info").read_text().split()[1], "s-2")
-
-    def testownerguard(self) -> None:
+    def testguard(self) -> None:
         self.assertIn("Read-only", self.shell("echo x >> .claude/settings.json").stderr)
-        done = self.shell("git config saddler.check yes; echo rc=$?; git branch tmp; git branch -d tmp")
-        self.assertIn("rc=0", done.stdout, done.stderr)
-        self.assertEqual(done.stderr, "")
-        hook = self.root / ".git" / "hooks" / "pre-commit"
-        hook.write_text("#!/bin/sh\ngit rev-parse HEAD >/dev/null\n")
-        hook.chmod(0o755)
-        done = self.shell("git add a.txt; echo three > a.txt; git add a.txt; git commit -qm mine; echo rc=$?; git rev-parse -q --verify nope; echo rc=$?")
-        self.assertEqual(done.stdout.split(), ["rc=0", "rc=1"], done.stderr)
-        self.assertEqual(git(self.root, "log", "-1", "--format=%s"), "mine")
+        done = self.shell("git update-ref refs/remotes/saddler/main HEAD || echo refused; git config saddler.x y && echo set")
+        self.assertEqual(done.stdout.split(), ["refused", "set"], done.stderr)
+        self.assertEqual(git(self.root, "config", "--default", "", "saddler.x"), "")
 
-    def testnolockcall(self) -> None:
+    def testnocommit(self) -> None:
+        git(self.root, "checkout", "-q", "--orphan", "empty")
+        self.shell("echo x > nc.txt")
+        self.assertEqual((self.root / "nc.txt").read_text(), "x\n")
+
+    def testdirty(self) -> None:
+        (self.root / "a.txt").write_text("dirty\n")
+        done = self.shell("echo ran")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("uncommitted changes", done.stderr)
+
+    def testbusy(self) -> None:
         self.shell("true")
-        start = time.monotonic()
-        late = subprocess.Popen([str(self.saddler / "sandbox.sh"), WRAPPER % "# saddler agent=a1 nolock\nsleep 2"],
-                                env=self.environ("s-1", self.first), cwd=self.root,
-                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-        self.addCleanup(late.wait)
-        time.sleep(0.5)
-        self.shell("git status --short")
-        self.assertLess(time.monotonic() - start, 1.8)
+        (self.lock / "checkpointing").touch()
+        with open(self.lock / "checkpoint", "a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            done = self.shell("echo ran")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("checkpoint is running", done.stderr)
+        self.assertEqual(self.shell("echo ran").stdout, "ran\n")
 
     def testhookshell(self) -> None:
         done = subprocess.run([str(self.saddler / "sandbox.sh"), "cat '%s/hidden'; echo x > .claude/y; touch '%s/ok'" % (self.home, self.lock)],
@@ -301,7 +261,6 @@ class ShellTest(SandboxCase):
         self.assertIn("No such file", done.stderr)
         self.assertIn("Read-only", done.stderr)
         self.assertTrue((self.lock / "ok").exists())
-        self.assertFalse((self.lock / "owner.info").exists())
 
     def testnested(self) -> None:
         inner = shlex.quote(WRAPPER % "git rev-parse HEAD")

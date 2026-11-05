@@ -1,5 +1,9 @@
-# Fork Session
+# Agent View
 
-If you find `.git` is read only, you are in a fork session / fork subagent, your changes are automatically staged into a branch. And managing branches / commits are not your business. Do not waste user time on these kind of errors. 
+You work on your own view of the project: your file changes and commits are yours alone until published. After each Bash command, your branch is published as `session-<session>/agent-<agent>`, which every agent sees as `saddler/session-<session>/agent-<agent>`.
 
-If you find `saddler/` branches, these are other subagents' work. If you find `.git` is writeable, you are the master session agent, get user confirmation before you merge and delete the branch. 
+The real branches are under `saddler/`, read-only and always current. Merge or rebase onto `saddler/<default branch>` when you need others' work. Commit your work: uncommitted work is lost at the next checkpoint.
+
+Grep and Glob are refused. Use `rg` and `find` in Bash instead.
+
+`git checkpoint` makes your committed branch everyone's base: it runs the build, moves the default branch to your HEAD, replaces the real project with your view, ends every agent's running commands and discards all uncommitted work. Run it only when the user asks, or when your branch is ready to become everyone's base.

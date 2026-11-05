@@ -18,19 +18,14 @@ from typing import Final, TypeAlias
 ROOT: Final = "~/Documents/Project"
 OLD: Final = ("edit_guard.py", "edit_hint.py", "write_guard.py",
               "sessionstartsandbox.py", "pretoolusewrite.py", "subagentstop.sh")
-NEW: Final = ("pretoolusewrite.py", "sessionstartsandbox.py", "subagentstop.sh")
-SCRIPTS: Final = ("sandbox.sh", "allowlist.sh", "gitlock.sh", "gitwrap.sh", "overlayfork.sh", "overlayowner.sh")
+NEW: Final = ("pretoolusewrite.py", "sessionstartsandbox.py")
+SCRIPTS: Final = ("sandbox.sh", "allowlist.sh", "overlayfork.sh", "checkpoint.sh", "requestcheckpoint.sh")
 SKIP: Final = ("node_modules", "target")
 SESSION_START: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstartsandbox.py"'
 WRITE_GUARD: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/pretoolusewrite.py" || exit 2'
-AGENT_STOP: Final = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/subagentstop.sh" || exit 2'
 MATCHER: Final = "Agent|Bash|Monitor|Write|Edit|NotebookEdit|Read|Grep|Glob"
 WANTED: Final = (("SessionStart", "", SESSION_START, 10),
-                 ("SessionStart", "", AGENT_STOP, 110),
-                 ("PreToolUse", MATCHER, WRITE_GUARD, 110),
-                 ("PostToolUse", "TaskStop", AGENT_STOP, 110),
-                 ("SubagentStop", "", AGENT_STOP, 110),
-                 ("SessionEnd", "", AGENT_STOP, 110))
+                 ("PreToolUse", MATCHER, WRITE_GUARD, 110))
 Settings: TypeAlias = dict[str, object]
 
 

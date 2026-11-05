@@ -12,7 +12,7 @@ from typing import Final
 REPO: Final = Path(__file__).resolve().parent.parent
 FILEGUARD: Final = REPO / "fileguard"
 MIGRATE: Final = FILEGUARD / "migrate.py"
-HOOKS: Final = ("pretoolusewrite.py", "sessionstartsandbox.py", "subagentstop.sh")
+HOOKS: Final = ("pretoolusewrite.py", "sessionstartsandbox.py")
 GUARD: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/pretoolusewrite.py" || exit 2'
 STOP: Final = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/subagentstop.sh" || exit 2'
 START: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstartsandbox.py"'
@@ -27,11 +27,8 @@ def entry(command: str, timeout: int, matcher: str = "") -> dict[str, object]:
 
 def currenthooks() -> dict[str, object]:
     """The hook entries of an up to date project."""
-    return {"SessionStart": [entry(START, 10), entry(STOP, 110)],
-            "PreToolUse": [entry(GUARD, 110, MATCHER)],
-            "PostToolUse": [entry(STOP, 110, "TaskStop")],
-            "SubagentStop": [entry(STOP, 110)],
-            "SessionEnd": [entry(STOP, 110)]}
+    return {"SessionStart": [entry(START, 10)],
+            "PreToolUse": [entry(GUARD, 110, MATCHER)]}
 
 
 class MigrateTest(unittest.TestCase):
@@ -93,10 +90,10 @@ class MigrateTest(unittest.TestCase):
         folder = self.current("one")
         path = folder / ".claude" / "settings.json"
         text = path.read_text()
-        (folder / ".claude" / "hooks" / "subagentstop.sh").write_text("stale\n")
+        (folder / ".claude" / "hooks" / "pretoolusewrite.py").write_text("stale\n")
         self.runscript("--apply")
-        self.assertEqual((folder / ".claude" / "hooks" / "subagentstop.sh").read_bytes(),
-                         (FILEGUARD / "subagentstop.sh").read_bytes())
+        self.assertEqual((folder / ".claude" / "hooks" / "pretoolusewrite.py").read_bytes(),
+                         (FILEGUARD / "pretoolusewrite.py").read_bytes())
         self.assertEqual(path.read_text(), text)
 
     def testentries(self) -> None:
@@ -109,6 +106,15 @@ class MigrateTest(unittest.TestCase):
         self.runscript("--apply")
         wanted = {**currenthooks(), "Stop": [entry("echo mine", 3)]}
         self.assertEqual(json.loads((folder / ".claude" / "settings.json").read_text())["hooks"], wanted)
+
+    def testretired(self) -> None:
+        folder = self.current("one")
+        hooks = {**currenthooks(), "SessionEnd": [entry(STOP, 110)], "SubagentStop": [entry(STOP, 110)]}
+        (folder / ".claude" / "settings.json").write_text(json.dumps({"hooks": hooks}))
+        (folder / ".claude" / "hooks" / "subagentstop.sh").write_text("old\n")
+        self.runscript("--apply")
+        self.assertEqual(json.loads((folder / ".claude" / "settings.json").read_text())["hooks"], currenthooks())
+        self.assertFalse((folder / ".claude" / "hooks" / "subagentstop.sh").exists())
 
     def testlocal(self) -> None:
         folder = self.current("one")
@@ -161,11 +167,11 @@ class MigrateTest(unittest.TestCase):
 
     def testdryrun(self) -> None:
         folder = self.current("one")
-        (folder / ".claude" / "hooks" / "subagentstop.sh").write_text("stale\n")
+        (folder / ".claude" / "hooks" / "pretoolusewrite.py").write_text("stale\n")
         output = self.runscript()
-        self.assertIn("copy subagentstop.sh", output)
+        self.assertIn("copy pretoolusewrite.py", output)
         self.assertIn("dry run", output)
-        self.assertEqual((folder / ".claude" / "hooks" / "subagentstop.sh").read_text(), "stale\n")
+        self.assertEqual((folder / ".claude" / "hooks" / "pretoolusewrite.py").read_text(), "stale\n")
 
 
 if __name__ == "__main__":
