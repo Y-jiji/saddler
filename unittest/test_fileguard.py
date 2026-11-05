@@ -141,25 +141,13 @@ class HookTest(SandboxCase):
         self.assertEqual(updated["command"].split("\n", 1)[1], tooluse["command"])
         self.assertEqual({**updated, "command": tooluse["command"]}, tooluse)
 
-    def testsearch(self) -> None:
-        for tool in ("Grep", "Glob"):
-            output = self.runhook({"tool_name": tool, "tool_input": {"pattern": "x"}})
-            self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny", tool)
-
-    def testview(self) -> None:
-        self.shell("# saddler agent=a1\necho mine > a.txt")
-        for agent, text in (("a1", "mine\n"), (None, "two\n")):
-            payload = {"tool_name": "Read", "tool_input": {"file_path": str(self.root / "a.txt")}}
-            output = self.runhook({**payload, "agent_id": agent} if agent else payload)
-            path = output["hookSpecificOutput"]["updatedInput"]["file_path"]
-            self.assertTrue(path.startswith("/proc/") and path.endswith(str(self.root / "a.txt")), path)
-            self.assertEqual(Path(path).read_text(), text)
-
-    def testwrite(self) -> None:
-        output = self.runhook({"tool_name": "Write", "tool_input": {"file_path": str(self.root / "w.txt"), "content": "w"}})
-        Path(output["hookSpecificOutput"]["updatedInput"]["file_path"]).write_text("w\n")
-        self.assertFalse((self.root / "w.txt").exists())
-        self.assertEqual(self.shell("cat w.txt").stdout, "w\n")
+    def testrefused(self) -> None:
+        for tool in ("Read", "Write", "Edit", "NotebookEdit", "Grep", "Glob"):
+            for path in (str(self.root / "a.txt"), "/etc/hostname"):
+                output = self.runhook({"tool_name": tool, "tool_input": {"file_path": path, "pattern": "x"}})
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny", tool)
+        git(self.root, "checkout", "-q", "--orphan", "empty")
+        self.assertEqual(self.runhook({"tool_name": "Read", "tool_input": {"file_path": str(self.root / "a.txt")}}), {})
 
     def testrecord(self) -> None:
         self.runhook({"session_id": "s-9", "tool_name": "Bash", "tool_input": {"command": "ls"}})

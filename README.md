@@ -66,7 +66,7 @@ Known limits:
 - [x] LIMIT7: A new single ignored file triggered a checkpoint: gone, checkpoints run only on `git checkpoint`.
 - [x] LIMIT8: A subagent lost its background commands and gitignored writes at each turn end: gone, a view stays until the next checkpoint.
 - [ ] LIMIT9: Nothing prunes the real objects between checkpoints, so the store grows with every published object.
-- [ ] LIMIT10: Grep and Glob are refused, and Read, Write and Edit show `/proc/<holder>/root` paths.
+- [ ] LIMIT10: Read, Write, Edit, NotebookEdit, Grep and Glob are refused in projects with a commit, so agents work through Bash and cannot look at images or PDFs there.
 - [ ] LIMIT11: A finished subagent's holder, background commands and upper stay until the next checkpoint or until its Claude process exits.
 - [ ] LIMIT12: `rw ~/.cargo/registry` still lets a sandboxed command change extracted crate sources, whose build scripts run when you build outside the sandbox.
 
@@ -77,5 +77,5 @@ Not yet verified:
 - [ ] TEST4: A real `cargo` build on a large `target/`, before and after a checkpoint.
 - [ ] TEST5: A project-level `env` block reaching `sandbox.sh` and `git checkpoint`.
 - [ ] TEST6: No model check of the current protocol; `protocolmodel.py` modelled the previous one.
-- [ ] TEST7: Read, Write and Edit through `/proc/<holder>/root` in live Claude Code, including Edit's read-before-edit check.
+- [x] TEST7: Read through `/proc/<holder>/root` in live Claude Code: failed, Claude Code resolves the path back to the host and reads the real files, so the file tools are now refused.
 - [ ] TEST8: Whether `!` commands get the Bash tool's timeout, which a long build in `!git checkpoint` would hit.
