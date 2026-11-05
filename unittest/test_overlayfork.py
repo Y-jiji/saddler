@@ -26,13 +26,15 @@ class ForkTest(SandboxCase):
 
     def fork(self, *command: str, agent: str = "a1", claude: int = 0,
              cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-        """Run a command through overlayfork.sh, making the agent's branch from the base if missing."""
+        """Run a command through overlayfork.sh, registering the agent and making its branch from the base if missing."""
         ref = "refs/heads/" + self.branch(agent)
         if subprocess.run(["git", "-C", str(self.root), "rev-parse", "-q", "--verify", ref]).returncode != 0:
             git(self.root, "update-ref", ref, self.base)
-        return subprocess.run([str(self.saddler / "overlayfork.sh"), str(self.root), str(self.folder / ("agent-" + agent)),
-                               str(self.lock / ("s-1-" + agent)), self.branch(agent), str(claude or self.first.pid),
-                               *command],
+        record = self.lock / ("s-1-" + agent)
+        if not record.exists():
+            record.write_text("- 0 %s %d\n" % (self.branch(agent), self.first.pid))
+        return subprocess.run([str(self.saddler / "overlayfork.sh"), str(self.root), str(record),
+                               str(claude or self.first.pid), *command],
                               capture_output=True, text=True, env=self.environ("s-1", self.first),
                               cwd=cwd or self.root, timeout=60)
 
@@ -154,8 +156,9 @@ class ForkTest(SandboxCase):
         self.assertIsNone(other.poll())
 
     def testpreempted(self) -> None:
-        late = subprocess.Popen([str(self.saddler / "overlayfork.sh"), str(self.root), str(self.folder / "agent-a1"),
-                                 str(self.lock / "s-1-a1"), self.branch("a1"), str(self.first.pid), "sleep", "30"],
+        self.fork("true")
+        late = subprocess.Popen([str(self.saddler / "overlayfork.sh"), str(self.root), str(self.lock / "s-1-a1"),
+                                 str(self.first.pid), "sleep", "30"],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                 env=self.environ("s-1", self.first), cwd=self.root)
         self.fork("true")

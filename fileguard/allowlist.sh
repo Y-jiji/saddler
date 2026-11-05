@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# allowlist.sh PROJ_FOLDER SCAN_FOLDER MOUNT_ARGS... -- COMMAND...
+# allowlist.sh PROJ_FOLDER MOUNT_ARGS... -- COMMAND...
 set -euo pipefail
 PROJ_FOLDER=$1
-SCAN_FOLDER=$2
-shift 2
+shift
 MOUNTS=()
 while [ "$1" != -- ]; do MOUNTS+=("$1"); shift; done
 shift
@@ -48,9 +47,9 @@ for d in /tmp/.X11-unix "/tmp/cc-daemon-$UID" /etc/ssh/ssh_config.d; do
 done
 # [6] MOUNT_ARGS
 args+=("${MOUNTS[@]}")
-# [7] read-only under SCAN_FOLDER, placed under PROJ_FOLDER
+# [7] every .claude in the project, read-only
 while IFS= read -r -d '' p; do
-    args+=(--ro-bind "$p" "$PROJ_FOLDER${p#"$SCAN_FOLDER"}")
-done < <(find "$SCAN_FOLDER" -name .git -prune -o ! -type l -name .claude -prune -print0)
-wait $! || { echo "allowlist.sh: cannot scan $SCAN_FOLDER" >&2; exit 1; }
+    args+=(--ro-bind "$p" "$p")
+done < <(find "$PROJ_FOLDER" -name .git -prune -o ! -type l -name .claude -prune -print0)
+wait $! || { echo "allowlist.sh: cannot scan $PROJ_FOLDER" >&2; exit 1; }
 exec bwrap "${args[@]}" --remount-ro / -- "$@"

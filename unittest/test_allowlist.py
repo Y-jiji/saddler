@@ -9,9 +9,9 @@ from test_fileguard import SandboxCase
 class AllowTest(SandboxCase):
     """allowlist.sh called directly, as a function."""
 
-    def allow(self, command: str, scan: str = "") -> subprocess.CompletedProcess[str]:
+    def allow(self, command: str, root: str = "") -> subprocess.CompletedProcess[str]:
         """Run a command with the real project mounted writable."""
-        return subprocess.run([str(self.saddler / "allowlist.sh"), str(self.root), scan or str(self.root),
+        return subprocess.run([str(self.saddler / "allowlist.sh"), root or str(self.root),
                                "--bind", str(self.root), str(self.root), "--chdir", str(self.root),
                                "--", "bash", "-c", command],
                               capture_output=True, text=True, env=self.environ("s-1", self.first), timeout=30)
@@ -45,7 +45,7 @@ class AllowTest(SandboxCase):
         self.assertNotEqual(done.returncode, 0)
         self.assertNotIn("ran", done.stdout)
         (self.box / "whitelist.txt").write_text("ro /usr\n")
-        done = self.allow("echo ran", scan=str(self.home / "missing"))
+        done = self.allow("echo ran", root=str(self.home / "missing"))
         self.assertNotEqual(done.returncode, 0)
         self.assertNotIn("ran", done.stdout)
 

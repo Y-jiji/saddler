@@ -1,19 +1,25 @@
 #!/bin/bash
-# overlayfork.sh PROJ_FOLDER FORK_FOLDER LOCK_FILE BRANCH CLAUDE_PID [COMMAND...]
+# overlayfork.sh PROJ_FOLDER LOCK_FILE CLAUDE_PID [COMMAND...]
 # One agent's command on its own view: an overlay of the real project and a
 # privatized .git, kept mounted by a holder process, after which the agent's
 # branch is published to the real .git. Without a command, only publish.
 PROJ_FOLDER=$1
-FORK_FOLDER=$2
-LOCK_FILE=$3
-BRANCH=$4
-CLAUDE_PID=$5
-shift 5
+LOCK_FILE=$2
+CLAUDE_PID=$3
+shift 3
 HERE=$(dirname "$(readlink -f "$0")")
 LOCK_FOLDER=${LOCK_FILE%/*}
 STATE_FOLDER=${LOCK_FOLDER%/*}
 BOX=${STATE_FOLDER%/*}
 REAL_GIT=$PROJ_FOLDER/.git
+BRANCH=''
+if [ -s "$LOCK_FILE" ]; then read -r _ _ BRANCH _ < "$LOCK_FILE"; fi
+if [[ ! $BRANCH == session-*/agent-* ]]; then
+    echo "overlayfork.sh: $LOCK_FILE registers no agent branch" >&2
+    exit 1
+fi
+SESSION=${BRANCH#session-}
+FORK_FOLDER=$STATE_FOLDER/session-${SESSION%%/*}/agent-${BRANCH##*/agent-}
 PRIVATE=$FORK_FOLDER/git
 GENERATION=$(cat "$LOCK_FOLDER/generation" 2>/dev/null)
 GENERATION=${GENERATION:-0}
@@ -129,7 +135,7 @@ if [ -z "$LIVE" ]; then
     START=$(mktemp -d) || exit 1
     mkfifo "$START/go" || exit 1
     exec 192<>"$START/go"
-    setsid "$HERE/allowlist.sh" "$PROJ_FOLDER" "$PROJ_FOLDER" --unshare-pid --proc /proc \
+    setsid "$HERE/allowlist.sh" "$PROJ_FOLDER" --unshare-pid --proc /proc \
         --overlay-src "$PROJ_FOLDER" --overlay "$FORK_FOLDER/fork" "$FORK_FOLDER/work" "$PROJ_FOLDER" \
         --bind "$PRIVATE" "$PROJ_FOLDER/.git" \
         --ro-bind "$REAL_GIT/refs/heads" "$PROJ_FOLDER/.git/refs/remotes/saddler" \

@@ -200,7 +200,7 @@ for FILE in "$LOCK_FOLDER"/*-*; do
     read -r _ _ BRANCH CLAUDE _ < "$FILE"
     AGENT_FOLDER=$(forkfolder "$BRANCH")
     if [ "$AGENT_FOLDER" != "$FORK_FOLDER" ]; then
-        "$HERE/overlayfork.sh" "$PROJ_FOLDER" "$AGENT_FOLDER" "$FILE" "$BRANCH" "$CLAUDE"
+        "$HERE/overlayfork.sh" "$PROJ_FOLDER" "$FILE" "$CLAUDE"
     fi
     chmod -R u+rwx "$AGENT_FOLDER" 2>/dev/null
     rm -rf "$AGENT_FOLDER"

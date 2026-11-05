@@ -43,14 +43,14 @@ if [[ ${1%%$'\n'*} == *"eval '"* ]]; then WRAPPED=1; fi
 
 # [3] hook shell
 if [ -z "$WRAPPED" ] && [ -z "$AGENT" ]; then
-    exec "$HERE/allowlist.sh" "$PROJ_FOLDER" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" \
+    exec "$HERE/allowlist.sh" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" \
         --bind "$STATE_FOLDER" "$STATE_FOLDER" --chdir "$PWD" -- bash -c -- "$RUN"
 fi
 
 # [4] tool call: the tagged subagent, or master; a project without a commit has nothing to view
 if [ -z "$AGENT" ]; then AGENT=master; fi
 if ! git -C "$PROJ_FOLDER" rev-parse --verify -q HEAD > /dev/null 2>&1; then
-    exec "$HERE/allowlist.sh" "$PROJ_FOLDER" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" \
+    exec "$HERE/allowlist.sh" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" \
         --chdir "$PWD" -- bash -c -- "$RUN"
 fi
 
@@ -69,11 +69,12 @@ if [ ! -s "$LOCK_FOLDER/base" ]; then "$HERE/checkpoint.sh" "$PROJ_FOLDER" "$STA
 # [7] the agent's branch, from the base if missing, and its registration
 LOCK_FILE=$LOCK_FOLDER/$SESSION-$AGENT
 BRANCH=session-$SESSION/agent-$AGENT
-FORK_FOLDER=$SESSION_FOLDER/agent-$AGENT
 if ! git -C "$PROJ_FOLDER" rev-parse --verify -q "refs/heads/$BRANCH" > /dev/null; then
     git -C "$PROJ_FOLDER" update-ref "refs/heads/$BRANCH" "$(cat "$LOCK_FOLDER/base")" "" 2> /dev/null || true
 fi
-if [ ! -s "$LOCK_FILE" ]; then
+REGISTERED=''
+if [ -s "$LOCK_FILE" ]; then read -r _ _ REGISTERED _ < "$LOCK_FILE"; fi
+if [ "$REGISTERED" != "$BRANCH" ]; then
     GENERATION=$(cat "$LOCK_FOLDER/generation" 2> /dev/null || true)
     printf -- '- %s %s %s\n' "${GENERATION:-0}" "$BRANCH" "$CLAUDE_PID" > "$LOCK_FILE"
 fi
@@ -85,12 +86,11 @@ if ! flock -n -s 189; then
     exit 1
 fi
 rc=0
-"$HERE/overlayfork.sh" "$PROJ_FOLDER" "$FORK_FOLDER" "$LOCK_FILE" "$BRANCH" "$CLAUDE_PID" \
-    bash -c -- "$RUN" 189<&- || rc=$?
+"$HERE/overlayfork.sh" "$PROJ_FOLDER" "$LOCK_FILE" "$CLAUDE_PID" bash -c -- "$RUN" 189<&- || rc=$?
 exec 189<&-
 
 # [9] the command ran git checkpoint
-if [ -e "$FORK_FOLDER/git/checkpoint" ]; then
+if [ -e "$SESSION_FOLDER/agent-$AGENT/git/checkpoint" ]; then
     "$HERE/checkpoint.sh" "$PROJ_FOLDER" "$STATE_FOLDER" "$LOCK_FILE" || if [ "$rc" -eq 0 ]; then rc=1; fi
 fi
 exit "$rc"
