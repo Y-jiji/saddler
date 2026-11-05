@@ -7,7 +7,7 @@
 To install: `bash install.sh`
 
 To invoke: run claude code in project folder; in claude code, type one of
-- `/fileguard`: sandbox Bash and guard Write, Edit and NotebookEdit
+- `/fileguard`: sandbox Bash, and give every session and subagent its own view of the project
 - `/codeguide`: software engineering instructions
 - `/mathguide`: formally verified (Lean) math project instructions
 - `/evalguide`: system evaluation repository layout
@@ -51,24 +51,31 @@ Agent's intelligence dilutes with context length. User must know that.
 ## fileguard
 
 Bugs and risks:
-- [x] BUG3: Hidden left-behind processes: fixed by giving the owner's holder a PID namespace, which also hides host processes from owner commands.
+- [x] BUG3: Hidden left-behind processes: fixed by giving each holder a PID namespace, which also hides host processes from commands.
 - [x] BUG5: PID reuse could make a stale lock file point at an unrelated process, which could then be killed, most likely after a reboot: fixed by recording each holder's start time.
-- [x] BUG6: A folder converted from tracked to ignored replaced a live fork's copy and dropped its work from the branch: fixed by making each fork follow its snapshotted `.gitignore`.
+- [x] BUG6: A folder converted from tracked to ignored replaced a live fork's copy and dropped its work from the branch: gone, because every view now has one overlay of the whole project.
+- [x] BUG7: Moving an upper into real ran `chmod -R` on the trash folder, whose files are hard links into real, so moved files became executable: fixed by changing only folders.
 
 Known limits:
-- [ ] LIMIT1: `cargo clean` empties `target/`, then fails with `Device or resource busy`, because `target/` is a mountpoint.
-- [ ] LIMIT2: Real ignored folders can lag while a fork is alive or a long owner command runs, and from the owner's last command until its next, because session end does not flush them.
-- [ ] LIMIT3: A fork command longer than period plus wait can be killed at every tick, and nothing warns about this.
-- [ ] LIMIT4: Each base copies single ignored files in full, however big they are.
-- [ ] LIMIT5: Writers outside Claude: a terminal or editor writing to a shared ignored folder under a live holder, the owner's or a fork's, gives that holder an inconsistent view, and a build there can make a fork run the wrong binary. Assumes fileguard's hooks are the only hooks.
-- [ ] LIMIT6: A checkpoint is assumed to succeed. If one is interrupted or fails, forks stay blocked until an owner command finishes it. With the owner gone that takes a new session, and a repeating failure needs a manual fix first.
-- [ ] LIMIT7: A new single ignored file triggers a checkpoint that can kill running fork commands, though nothing needs sharing. Left as is, because new single ignored files are rare.
-- [ ] LIMIT8: A subagent's background commands and gitignored writes end each time it finishes a turn.
+- [x] LIMIT1: `cargo clean` failed because `target/` was a mountpoint: gone, ignored folders are no longer mounted on their own.
+- [ ] LIMIT2: The real files change only at `git checkpoint`, so your terminal, editor and hooks see the last checkpoint.
+- [ ] LIMIT3: A checkpoint kills every running command after the wait, long builds and servers included, and discards every agent's uncommitted work.
+- [x] LIMIT4: Each base copied single ignored files in full: gone, there are no base copies.
+- [ ] LIMIT5: Writers outside Claude: editing tracked files in the real project changes every view's lower, makes `git checkpoint` refuse in views that see the edit, and is saved to a rescue branch and replaced at the next checkpoint. Assumes fileguard's hooks are the only hooks.
+- [ ] LIMIT6: A checkpoint is assumed to succeed. One interrupted is finished by the next command; one that keeps failing needs a manual fix.
+- [x] LIMIT7: A new single ignored file triggered a checkpoint: gone, checkpoints run only on `git checkpoint`.
+- [x] LIMIT8: A subagent lost its background commands and gitignored writes at each turn end: gone, a view stays until the next checkpoint.
+- [ ] LIMIT9: Nothing prunes the real objects between checkpoints, so the store grows with every published object.
+- [ ] LIMIT10: Grep and Glob are refused, and Read, Write and Edit show `/proc/<holder>/root` paths.
+- [ ] LIMIT11: A finished subagent's holder, background commands and upper stay until the next checkpoint or until its Claude process exits.
+- [ ] LIMIT12: `rw ~/.cargo/registry` still lets a sandboxed command change extracted crate sources, whose build scripts run when you build outside the sandbox.
 
 Not yet verified:
-- [ ] TEST1: A real preemption or period-driven checkpoint with a live subagent.
-- [ ] TEST2: A real interrupted move and its recovery.
-- [ ] TEST3: A second session running as a fork in live use, including its `!` commands taking the fork path.
-- [ ] TEST4: A real `cargo` build on a large `target/`.
-- [ ] TEST5: A project-level `env` block reaching `sandbox.sh`, and whether a running session picks up a change.
-- [ ] TEST6: Model gaps: the two-fork run was partial, two owners were never combined with interrupts, new-owner recovery never finished a full search, and ignored-list changes are not modelled.
+- [ ] TEST1: A real `git checkpoint` with live subagents, including preemption.
+- [ ] TEST2: A real interrupted checkpoint and its recovery.
+- [ ] TEST3: A second live session and its `!` commands, each on its own view.
+- [ ] TEST4: A real `cargo` build on a large `target/`, before and after a checkpoint.
+- [ ] TEST5: A project-level `env` block reaching `sandbox.sh` and `git checkpoint`.
+- [ ] TEST6: No model check of the current protocol; `protocolmodel.py` modelled the previous one.
+- [ ] TEST7: Read, Write and Edit through `/proc/<holder>/root` in live Claude Code, including Edit's read-before-edit check.
+- [ ] TEST8: Whether `!` commands get the Bash tool's timeout, which a long build in `!git checkpoint` would hit.
