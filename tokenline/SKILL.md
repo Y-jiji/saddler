@@ -1,6 +1,6 @@
 ---
 name: tokenline
-description: set up the status line `<TOKEN COUNT> @ <FOLDER> (<BRANCH>) [<ROLE>]`
+description: set up the status line `<TOKEN COUNT> @ <FOLDER> (<BRANCH>)`
 disable-model-invocation: true
 ---
 
@@ -12,13 +12,12 @@ Do these in order:
 Why:
 - The status line reads like:
   ```
-  <TOKEN COUNT> @ <FOLDER> (<BRANCH>) [<ROLE>]
+  <TOKEN COUNT> @ <FOLDER> (<BRANCH>)
   ```
   Example:
   ```
   1.3k @ ~/Documents/Project (main)
-  1000.7k @ ~/Documents/Project (master) [owner]
-  1.3k @ ~/Documents/Project (main) [fork]
+  1000.7k @ ~/Documents/Project (master)
   ```
   If not inside `~`, show absolute path.
   If not inside a git repo, show no branch.
@@ -26,5 +25,4 @@ Why:
   ```
   0k @ /etc/sudoers
   ```
-- `statusline.sh` reads the token count, folder and session from the JSON Claude Code passes on stdin, and the branch from git.
-- `[owner]` or `[fork]` is this session's fileguard role, read from `lock/owner.info` and `lock/<session>-master` under `~/.claude/sandbox`. A session that has run no command yet, or a project without fileguard, shows no role.
+- `statusline.sh` reads the token count and folder from the JSON Claude Code passes on stdin, and the branch from git.
