@@ -147,7 +147,7 @@ killholders
 # [5] changes made straight in the real project go to a rescue branch
 rescue
 
-# [6] the default branch moves to the requester's tip, and the requester's upper moves into real
+# [6] the default branch moves to the requester's tip, the requester's upper moves into real, real HEAD stays on the branch
 OLD=$(git --git-dir="$REAL_GIT" rev-parse -q --verify "$DEFAULT")
 if [ "$OLD" != "$TIP" ] &&
    ! { git --git-dir="$REAL_GIT" merge-base --is-ancestor "$OLD" "$TIP" &&
@@ -185,7 +185,7 @@ for root, folders, files in os.walk(sys.argv[1]):
     rm -rf "$TRASH_FOLDER"
     mv -T "$UPPER" "$TRASH_FOLDER"
 fi
-git --git-dir="$REAL_GIT" update-ref --no-deref HEAD "$TIP"
+git --git-dir="$REAL_GIT" symbolic-ref HEAD "$DEFAULT"
 git -C "$PROJ_FOLDER" read-tree "$TIP"
 git -C "$PROJ_FOLDER" update-index -q --refresh > /dev/null
 if [ -n "$(git -C "$PROJ_FOLDER" status --porcelain --untracked-files=no)" ]; then

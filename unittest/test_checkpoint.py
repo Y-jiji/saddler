@@ -61,6 +61,7 @@ class CheckpointTest(CheckpointCase):
         self.assertEqual((self.root / "target" / "art").read_text(), "art\n")
         self.assertEqual(git(self.root, "status", "--porcelain", "--untracked-files=no"), "")
         self.assertEqual(git(self.root, "rev-parse", "HEAD"), tip)
+        self.assertEqual(git(self.root, "symbolic-ref", "HEAD"), "refs/heads/main")
         self.assertFalse(self.exists("refs/heads/session-s-1/agent-a1"))
         self.assertEqual((self.lock / "base").read_text().strip(), tip)
         self.assertEqual((self.lock / "generation").read_text().strip(), "1")
