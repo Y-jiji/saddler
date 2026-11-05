@@ -10,15 +10,6 @@
             "timeout": 10
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/fileguard/subagentstop.sh\" || exit 2",
-            "timeout": 110
-          }
-        ]
       }
     ],
     "PreToolUse": [
@@ -28,40 +19,6 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/fileguard/pretoolusewrite.py\" || exit 2",
-            "timeout": 110
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "TaskStop",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/fileguard/subagentstop.sh\" || exit 2",
-            "timeout": 110
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/fileguard/subagentstop.sh\" || exit 2",
-            "timeout": 110
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/fileguard/subagentstop.sh\" || exit 2",
             "timeout": 110
           }
         ]
