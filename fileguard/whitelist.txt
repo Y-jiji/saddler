@@ -13,12 +13,10 @@ ro ~/.claude/shell-snapshots
 ro ~/.claude/statusline.sh
 rw /tmp
 rw ~/.cache
-rw ~/.cargo
-rw ~/.rustup
+rw ~/.cargo/registry
+rw ~/.cargo/git
 rw ~/.npm
-rw ~/.nvm
-rw ~/.bun
-rw ~/.local
+rw ~/.bun/install/cache
 rw ~/.gradle
 rw ~/.m2
 rw ~/.elan
