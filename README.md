@@ -69,6 +69,7 @@ Known limits:
 - [ ] LIMIT10: In projects with a commit, Read is refused on project files, and Write, Edit, NotebookEdit, Grep and Glob everywhere, so agents work through Bash and view project images or PDFs by copying them to `/tmp`.
 - [ ] LIMIT11: A finished subagent's holder, background commands and upper stay until the next checkpoint or until its Claude process exits.
 - [ ] LIMIT12: `rw ~/.cargo/registry` still lets a sandboxed command change extracted crate sources, whose build scripts run when you build outside the sandbox.
+- [ ] LIMIT13: Old-style submodules and nested repositories, any `.git` folder inside the project, are read-only in views: agents can read them but not commit there.
 
 Not yet verified:
 - [ ] TEST1: A real `git checkpoint` with live subagents, including preemption.
@@ -79,3 +80,4 @@ Not yet verified:
 - [ ] TEST6: No model check of the current protocol; `protocolmodel.py` modelled the previous one.
 - [x] TEST7: Read through `/proc/<holder>/root` in live Claude Code: failed, Claude Code resolves the path back to the host and reads the real files, so the file tools are now refused.
 - [ ] TEST8: Whether `!` commands get the Bash tool's timeout, which a long build in `!git checkpoint` would hit.
+- [ ] TEST9: Submodules in live use, including one an agent adds and one fetched from a remote URL.

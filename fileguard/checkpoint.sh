@@ -3,7 +3,8 @@
 # The only script that changes the real project. Without LOCK_FILE, record the
 # first base or finish an interrupted checkpoint. With LOCK_FILE, that agent ran
 # git checkpoint: the default branch moves to its tip, its view becomes the real
-# project and everyone's base, and every agent starts over from its branch.
+# project and everyone's base, each submodule follows the tip's pointers, and every
+# agent starts over from its branch.
 PROJ_FOLDER=$1
 STATE_FOLDER=$2
 LOCK_FILE=${3:-}
@@ -31,22 +32,47 @@ defaultbranch() {
     done
     echo HEAD
 }
+# modules DIR PREFIX: the submodule git folders below DIR, nested ones included, parents first, as PREFIX<name>
+modules() {
+    local ENTRY
+    for ENTRY in "$1"/*/; do
+        ENTRY=${ENTRY%/}
+        if [ -f "$ENTRY/HEAD" ] && [ -d "$ENTRY/objects" ]; then
+            echo "$2${ENTRY##*/}"
+            modules "$ENTRY/modules" "$2${ENTRY##*/}/modules/"
+        elif [ -d "$ENTRY" ]; then
+            modules "$ENTRY" "$2${ENTRY##*/}/"
+        fi
+    done
+}
+# submodules WORKTREE COMMIT: every submodule COMMIT points to, nested ones included, as worktree<TAB>commit
+submodules() {
+    local LINE META SUB
+    git -C "$1" ls-tree -r -z "$2" 2>/dev/null | while IFS= read -r -d '' LINE; do
+        META=${LINE%%$'\t'*}
+        if [ "${META%% *}" != 160000 ]; then continue; fi
+        SUB=$1/${LINE#*$'\t'}
+        printf '%s\t%s\n' "$SUB" "${META##* }"
+        if [ -e "$SUB/.git" ]; then submodules "$SUB" "${META##* }"; fi
+    done
+}
 forkfolder() {
     local SESSION=${1#session-}
     echo "$STATE_FOLDER/session-${SESSION%%/*}/agent-${1##*/agent-}"
 }
+# rescue WORKTREE: uncommitted changes to tracked files of the real project or a real submodule go to a rescue branch
 rescue() {
     local INDEX TREE COMMIT NAME
-    if [ -z "$(git -C "$PROJ_FOLDER" status --porcelain --untracked-files=no)" ]; then return; fi
+    if [ -z "$(git -C "$1" status --porcelain --untracked-files=no --ignore-submodules)" ]; then return; fi
     INDEX=$(mktemp -u)
     printf -v NAME 'rescue-%(%Y%m%d-%H%M%S)T' -1
-    if GIT_INDEX_FILE=$INDEX git -C "$PROJ_FOLDER" read-tree HEAD &&
-       GIT_INDEX_FILE=$INDEX git -C "$PROJ_FOLDER" add -u &&
-       TREE=$(GIT_INDEX_FILE=$INDEX git -C "$PROJ_FOLDER" write-tree) &&
-       COMMIT=$(git -C "$PROJ_FOLDER" -c user.name=saddler -c user.email=saddler@localhost \
+    if GIT_INDEX_FILE=$INDEX git -C "$1" read-tree HEAD &&
+       GIT_INDEX_FILE=$INDEX git -C "$1" add -u &&
+       TREE=$(GIT_INDEX_FILE=$INDEX git -C "$1" write-tree) &&
+       COMMIT=$(git -C "$1" -c user.name=saddler -c user.email=saddler@localhost \
                     commit-tree "$TREE" -p HEAD -m "saddler: changes found in the real project") &&
-       git -C "$PROJ_FOLDER" update-ref "refs/heads/$NAME" "$COMMIT"; then
-        echo "checkpoint.sh: changes found in $PROJ_FOLDER are on branch $NAME" >&2
+       git -C "$1" update-ref "refs/heads/$NAME" "$COMMIT"; then
+        echo "checkpoint.sh: changes found in $1 are on branch $NAME" >&2
     fi
     rm -f "$INDEX"
 }
@@ -144,10 +170,14 @@ if ! flock -w "$WAIT" -x 189; then
 fi
 killholders
 
-# [5] changes made straight in the real project go to a rescue branch
-rescue
+# [5] changes made straight in the real project or its submodules go to rescue branches
+rescue "$PROJ_FOLDER"
+submodules "$PROJ_FOLDER" HEAD | while IFS=$'\t' read -r SUB _; do
+    if [ -e "$SUB/.git" ]; then rescue "$SUB"; fi
+done
 
-# [6] the default branch moves to the requester's tip, the requester's upper moves into real, real HEAD stays on the branch
+# [6] the default branch moves to the requester's tip, the requester's upper moves into real without any .git folder,
+#     real HEAD stays on the branch, and each submodule's HEAD is detached where the tip points
 OLD=$(git --git-dir="$REAL_GIT" rev-parse -q --verify "$DEFAULT")
 if [ "$OLD" != "$TIP" ] &&
    ! { git --git-dir="$REAL_GIT" merge-base --is-ancestor "$OLD" "$TIP" &&
@@ -158,7 +188,7 @@ if [ "$OLD" != "$TIP" ] &&
 fi
 UPPER=$FORK_FOLDER/fork
 if [ -d "$UPPER" ]; then
-    rm -rf "$UPPER/.git"
+    find "$UPPER" -name .git -type d -prune -exec rm -rf {} +
     find "$UPPER" -type c -printf '%P\0' | env -C "$PROJ_FOLDER" xargs -0 -r rm -rf --
     find "$UPPER" -type c -delete
     python3 -c '
@@ -188,13 +218,26 @@ fi
 git --git-dir="$REAL_GIT" symbolic-ref HEAD "$DEFAULT"
 git -C "$PROJ_FOLDER" read-tree "$TIP"
 git -C "$PROJ_FOLDER" update-index -q --refresh > /dev/null
+submodules "$PROJ_FOLDER" "$TIP" | while IFS=$'\t' read -r SUB SHA; do
+    if [ ! -e "$SUB/.git" ] || ! git -C "$SUB" cat-file -e "$SHA^{commit}" 2>/dev/null; then
+        echo "checkpoint.sh: ${SUB#"$PROJ_FOLDER"/} has no commit $SHA and stays as it was" >&2
+        continue
+    fi
+    git -C "$SUB" update-ref --no-deref HEAD "$SHA"
+    git -C "$SUB" read-tree "$SHA"
+    git -C "$SUB" update-index -q --refresh > /dev/null
+    if [ -n "$(git -C "$SUB" status --porcelain --untracked-files=no --ignore-submodules)" ]; then
+        rescue "$SUB"
+        git -C "$SUB" reset -q --hard "$SHA"
+    fi
+done
 if [ -n "$(git -C "$PROJ_FOLDER" status --porcelain --untracked-files=no)" ]; then
-    rescue
+    rescue "$PROJ_FOLDER"
     git -C "$PROJ_FOLDER" reset -q --hard "$TIP"
 fi
 
 # [7] every agent starts over: publish it once more, delete its folder, drop registrations of dead Claude
-#     processes and branches the default branch has, then prune what nothing reaches
+#     processes and branches the default branch or a submodule's HEAD has, then prune what nothing reaches
 for FILE in "$LOCK_FOLDER"/*-*; do
     if [ ! -f "$FILE" ]; then continue; fi
     read -r _ _ BRANCH CLAUDE _ < "$FILE"
@@ -213,6 +256,19 @@ git --git-dir="$REAL_GIT" for-each-ref --format='%(refname)' refs/heads/ | while
                 git --git-dir="$REAL_GIT" update-ref -d "$REF"
             fi ;;
     esac
+done
+modules "$REAL_GIT/modules" modules/ | while IFS= read -r M; do
+    git --git-dir="$REAL_GIT/$M" --work-tree=/ config gc.pruneExpire never
+    git --git-dir="$REAL_GIT/$M" --work-tree=/ config gc.packRefs false
+    git --git-dir="$REAL_GIT/$M" --work-tree=/ for-each-ref --format='%(refname)' refs/heads/ | while read -r REF; do
+        case $REF in
+            refs/heads/session-*/agent-*)
+                if git --git-dir="$REAL_GIT/$M" --work-tree=/ merge-base --is-ancestor "$REF" HEAD 2>/dev/null; then
+                    git --git-dir="$REAL_GIT/$M" --work-tree=/ update-ref -d "$REF"
+                fi ;;
+        esac
+    done
+    git --git-dir="$REAL_GIT/$M" --work-tree=/ gc -q --prune=now
 done
 find "$TRASH_FOLDER" -type d -exec chmod u+rwx {} + 2>/dev/null
 rm -rf "$TRASH_FOLDER"
