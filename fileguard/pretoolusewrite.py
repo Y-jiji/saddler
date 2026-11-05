@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """PreToolUse hook. Every agent works on its own view of the project, kept by a
 holder process. A subagent's Bash and Monitor commands gain a first line naming it
-for sandbox.sh. Read, Write, Edit, NotebookEdit, Grep and Glob would act on the real
-project instead, so they are refused, and starting a subagent needs a commit.
+for sandbox.sh. Read on project files, and Write, Edit, NotebookEdit, Grep and Glob
+anywhere, would act on the real project instead, so they are refused, and starting a
+subagent needs a commit.
 """
 
 import json
@@ -47,6 +48,12 @@ def lockdir(root: str) -> str:
                         "project-" + quote(root, safe=""), "lock")
 
 
+def inside(path: str, cwd: str, root: str) -> bool:
+    """Whether a path, with symlinks resolved, is the project folder or lies below it."""
+    real = os.path.realpath(os.path.join(cwd, path))
+    return real == root or real.startswith(root + os.sep)
+
+
 def main() -> None:
     """Handle one PreToolUse call, top to bottom."""
     payload = json.load(sys.stdin)
@@ -73,8 +80,11 @@ def main() -> None:
                                  "start from the last commit." % root), sys.stdout)
             return
     if tool in FILE_TOOLS:
+        if tool == "Read" and not inside(str(tooluse.get("file_path") or ""), cwd, root):
+            return
         json.dump(denial("%s would act on the real project, not your own view of it. Use Bash "
-                         "instead: cat, sed, rg, find and heredocs." % tool), sys.stdout)
+                         "instead: cat, sed, rg, find and heredocs. To view an image or PDF in the "
+                         "project, copy it to /tmp and Read it there." % tool), sys.stdout)
         return
 
     if tool in SHELL_TOOLS and agent:

@@ -66,7 +66,7 @@ Known limits:
 - [x] LIMIT7: A new single ignored file triggered a checkpoint: gone, checkpoints run only on `git checkpoint`.
 - [x] LIMIT8: A subagent lost its background commands and gitignored writes at each turn end: gone, a view stays until the next checkpoint.
 - [ ] LIMIT9: Nothing prunes the real objects between checkpoints, so the store grows with every published object.
-- [ ] LIMIT10: Read, Write, Edit, NotebookEdit, Grep and Glob are refused in projects with a commit, so agents work through Bash and cannot look at images or PDFs there.
+- [ ] LIMIT10: In projects with a commit, Read is refused on project files, and Write, Edit, NotebookEdit, Grep and Glob everywhere, so agents work through Bash and view project images or PDFs by copying them to `/tmp`.
 - [ ] LIMIT11: A finished subagent's holder, background commands and upper stay until the next checkpoint or until its Claude process exits.
 - [ ] LIMIT12: `rw ~/.cargo/registry` still lets a sandboxed command change extracted crate sources, whose build scripts run when you build outside the sandbox.
 

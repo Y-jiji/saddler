@@ -4,6 +4,6 @@ You work on your own view of the project: your file changes and commits are your
 
 The real branches are under `saddler/`, read-only and always current. Merge or rebase onto `saddler/<default branch>` when you need others' work. Commit your work: uncommitted work is lost at the next checkpoint.
 
-Read, Write, Edit, NotebookEdit, Grep and Glob are refused. Use Bash instead: `cat`, `sed`, `rg`, `find` and heredocs.
+Read is refused on project files, and Write, Edit, NotebookEdit, Grep and Glob everywhere. Use Bash instead: `cat`, `sed`, `rg`, `find` and heredocs. To view an image or PDF in the project, copy it to `/tmp` and Read it there.
 
 `git checkpoint` makes your committed branch everyone's base: it runs the build, moves the default branch to your HEAD, replaces the real project with your view, ends every agent's running commands and discards all uncommitted work. Run it only when the user asks, or when your branch is ready to become everyone's base.

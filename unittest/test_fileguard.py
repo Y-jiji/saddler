@@ -142,10 +142,14 @@ class HookTest(SandboxCase):
         self.assertEqual({**updated, "command": tooluse["command"]}, tooluse)
 
     def testrefused(self) -> None:
+        link = self.home / "tmp" / "link"
+        link.symlink_to(self.root / "a.txt")
         for tool in ("Read", "Write", "Edit", "NotebookEdit", "Grep", "Glob"):
-            for path in (str(self.root / "a.txt"), "/etc/hostname"):
+            paths = [str(self.root / "a.txt"), str(link)] + (["/etc/hostname"] if tool != "Read" else [])
+            for path in paths:
                 output = self.runhook({"tool_name": tool, "tool_input": {"file_path": path, "pattern": "x"}})
-                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny", tool)
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny", (tool, path))
+        self.assertEqual(self.runhook({"tool_name": "Read", "tool_input": {"file_path": "/etc/hostname"}}), {})
         git(self.root, "checkout", "-q", "--orphan", "empty")
         self.assertEqual(self.runhook({"tool_name": "Read", "tool_input": {"file_path": str(self.root / "a.txt")}}), {})
 
