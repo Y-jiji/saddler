@@ -10,7 +10,7 @@ SKILLS="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 SADDLER="$HOME/.claude/saddler"
 BOX="$HOME/.claude/sandbox"
 mkdir -p "$SADDLER" "$BOX"
-for NAME in sandbox allowlist overlayfork checkpoint requestcheckpoint; do
+for NAME in sandbox allowlist overlayfork checkpoint requestcheckpoint forkshell; do
     install -m 755 "$SRC/fileguard/$NAME.sh" "$SADDLER/$NAME.sh"
 done
 rm -f "$SADDLER/gitlock.sh" "$SADDLER/gitwrap.sh" "$SADDLER/overlayowner.sh"

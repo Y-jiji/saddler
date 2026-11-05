@@ -81,3 +81,4 @@ Not yet verified:
 - [x] TEST7: Read through `/proc/<holder>/root` in live Claude Code: failed, Claude Code resolves the path back to the host and reads the real files, so the file tools are now refused.
 - [ ] TEST8: Whether `!` commands get the Bash tool's timeout, which a long build in `!git checkpoint` would hit.
 - [ ] TEST9: Submodules in live use, including one an agent adds and one fetched from a remote URL.
+- [ ] TEST10: `forkshell.sh` in a live terminal, including job control and a checkpoint that ends its shell.
