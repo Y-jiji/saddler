@@ -17,6 +17,19 @@ rm -f "$SADDLER/gitlock.sh" "$SADDLER/gitwrap.sh" "$SADDLER/overlayowner.sh"
 [ -e "$BOX/whitelist.txt" ] || cp "$SRC/fileguard/whitelist.txt" "$BOX/whitelist.txt"
 echo "installed fileguard scripts -> $SADDLER"
 
+# forkshell in ~/.bashrc, as one marked block replaced on every run; writing through the path keeps a symlink
+BASHRC="$HOME/.bashrc"
+BEGIN='#>>>>>>>>>>>>>># saddler'
+END='#<<<<<<<<<<<<<<# saddler'
+TMP=$(mktemp)
+if [ -e "$BASHRC" ]; then
+    awk -v b="$BEGIN" -v e="$END" '$0 == b { skip = 1; next } $0 == e { skip = 0; next } !skip' "$BASHRC" > "$TMP"
+fi
+printf '%s\n' "$BEGIN" 'forkshell() { "$HOME/.claude/saddler/forkshell.sh" "$@"; }' "$END" >> "$TMP"
+cat "$TMP" > "$BASHRC"
+rm -f "$TMP"
+echo "registered forkshell in $BASHRC"
+
 for SKILL in "$SRC"/*/SKILL.md; do
     DIR="$(dirname "$SKILL")"
     NAME="$(sed -n '/^---$/,/^---$/{s/^name:[[:space:]]*//p}' "$SKILL" | head -1)"
