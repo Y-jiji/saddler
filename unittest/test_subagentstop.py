@@ -44,6 +44,47 @@ class StopTest(SandboxCase):
         self.stopped()
         self.assertEqual(git(self.root, "show", "saddler/s-1/a1:late.txt"), "late")
 
+    def testresume(self) -> None:
+        self.shell("# saddler agent=a1\necho edit > a.txt")
+        self.stopped()
+        done = self.shell("# saddler agent=a1\ncat a.txt; echo more > b.txt")
+        self.assertEqual((done.returncode, done.stdout), (0, "edit\n"), done.stderr)
+        self.assertEqual(git(self.root, "show", "saddler/s-1/a1:a.txt"), "edit")
+        self.assertEqual(git(self.root, "show", "saddler/s-1/a1:b.txt"), "more")
+
+    def testresumeidle(self) -> None:
+        self.shell("# saddler agent=a1\necho edit > a.txt")
+        self.stopped()
+        done = self.shell("# saddler agent=a1\ntrue")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.stopped()
+        self.assertEqual(git(self.root, "show", "saddler/s-1/a1:a.txt"), "edit")
+
+    def testdeletedbranch(self) -> None:
+        self.shell("# saddler agent=a1\necho edit > a.txt")
+        self.stopped()
+        git(self.root, "branch", "-D", "saddler/s-1/a1")
+        self.assertEqual(self.shell("# saddler agent=a1\ncat a.txt").stdout, "two\n")
+
+    def testdefaultbase(self) -> None:
+        git(self.root, "branch", "-m", "trunk")
+        git(self.root, "update-ref", "refs/remotes/origin/trunk", self.base)
+        git(self.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+        git(self.root, "checkout", "-qb", "other")
+        git(self.root, "commit", "-q", "--allow-empty", "-m", "other")
+        self.assertEqual(self.shell("# saddler agent=a1\ngit rev-parse HEAD").stdout.strip(), self.base)
+        git(self.root, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+        git(self.root, "branch", "-m", "trunk", "main")
+        self.assertEqual(self.shell("# saddler agent=a2\ngit rev-parse HEAD").stdout.strip(), self.base)
+
+    def testmergedstop(self) -> None:
+        self.shell("# saddler agent=a1\necho edit > a.txt")
+        self.stopped()
+        self.shell("git merge -q --no-edit saddler/s-1/a1")
+        self.shell("# saddler agent=a1\ntrue")
+        self.stopped()
+        self.assertEqual(git(self.root, "branch", "--list", "saddler/*"), "")
+
     def testsessionend(self) -> None:
         self.shell("true")
         self.session("s-2")

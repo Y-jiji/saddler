@@ -84,15 +84,29 @@ if [ -z "$AGENT" ]; then
         --chdir "$PWD" -- bash -c -- "$RUN"
 fi
 
-# [7] fork, first call: take HEAD as base, make the branch, register
+defaultbranch() {
+    local NAME
+    NAME=$(git -C "$PROJ_FOLDER" symbolic-ref -q refs/remotes/origin/HEAD) || NAME=''
+    for NAME in "${NAME#refs/remotes/origin/}" main master; do
+        if [ -n "$NAME" ] && git -C "$PROJ_FOLDER" rev-parse --verify -q "refs/heads/$NAME" > /dev/null; then
+            echo "refs/heads/$NAME"
+            return
+        fi
+    done
+    echo HEAD
+}
+
+# [7] fork, first call: take the branch tip or the default branch as base, make the branch if missing, register
 LOCK_FILE=$LOCK_FOLDER/$SESSION-$AGENT
 BRANCH=saddler/$SESSION/$AGENT
 if [ ! -s "$LOCK_FILE" ]; then
-    BASE_COMMIT=$(git -C "$PROJ_FOLDER" rev-parse --verify -q HEAD) || {
-        echo "sandbox.sh: session ${OWNER:-another} owns $PROJ_FOLDER, and it has no commit to fork from" >&2
-        exit 1
+    BASE_COMMIT=$(git -C "$PROJ_FOLDER" rev-parse --verify -q "refs/heads/$BRANCH") || {
+        BASE_COMMIT=$(git -C "$PROJ_FOLDER" rev-parse --verify -q "$(defaultbranch)") || {
+            echo "sandbox.sh: session ${OWNER:-another} owns $PROJ_FOLDER, and it has no commit to fork from" >&2
+            exit 1
+        }
+        git -C "$PROJ_FOLDER" update-ref "refs/heads/$BRANCH" "$BASE_COMMIT" ""
     }
-    git -C "$PROJ_FOLDER" update-ref "refs/heads/$BRANCH" "$BASE_COMMIT" ""
     printf -- '- %s %s %s\n' "$BASE_COMMIT" "$BRANCH" "$CLAUDE_PID" > "$LOCK_FILE"
 fi
 read -r _ BASE_COMMIT _ _ < "$LOCK_FILE"

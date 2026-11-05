@@ -5,6 +5,17 @@ starttime() {
     { read -r STAT < "/proc/$1/stat"; } 2>/dev/null
     cut -d' ' -f20 <<< "${STAT##*) }"
 }
+defaultbranch() {
+    local NAME
+    NAME=$(git -C "$PROJ_FOLDER" symbolic-ref -q refs/remotes/origin/HEAD) || NAME=''
+    for NAME in "${NAME#refs/remotes/origin/}" main master; do
+        if [ -n "$NAME" ] && git -C "$PROJ_FOLDER" rev-parse --verify -q "refs/heads/$NAME" > /dev/null; then
+            echo "refs/heads/$NAME"
+            return
+        fi
+    done
+    echo HEAD
+}
 
 # [1] read event, session, agent; PROJ_FOLDER from $CLAUDE_PROJECT_DIR; LOCK_FOLDER from PROJ_FOLDER
 read -r EVENT SESSION AGENT < <(python3 -c '
@@ -47,8 +58,8 @@ for LOCK_FILE in "${FORKS[@]}"; do
         kill -KILL "$HOLDER" 2>/dev/null
         for i in $(seq 1 500); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
     fi
-    # [4] no new work: delete the branch
-    if [ "$(git -C "$PROJ_FOLDER" rev-parse "refs/heads/$BRANCH")" = "$BASE_COMMIT" ]; then
+    # [4] nothing beyond the default branch: delete the branch
+    if git -C "$PROJ_FOLDER" merge-base --is-ancestor "refs/heads/$BRANCH" "$(defaultbranch)"; then
         git -C "$PROJ_FOLDER" update-ref -d "refs/heads/$BRANCH"
     fi
     # [5] delete the fork and its registration; delete its base if no fork uses it

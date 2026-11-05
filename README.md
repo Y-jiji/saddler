@@ -63,6 +63,7 @@ Known limits:
 - [ ] LIMIT5: Writers outside Claude: a terminal or editor writing to a shared ignored folder under a live holder, the owner's or a fork's, gives that holder an inconsistent view, and a build there can make a fork run the wrong binary. Assumes fileguard's hooks are the only hooks.
 - [ ] LIMIT6: A checkpoint is assumed to succeed. If one is interrupted or fails, forks stay blocked until an owner command finishes it. With the owner gone that takes a new session, and a repeating failure needs a manual fix first.
 - [ ] LIMIT7: A new single ignored file triggers a checkpoint that can kill running fork commands, though nothing needs sharing. Left as is, because new single ignored files are rare.
+- [ ] LIMIT8: A subagent's background commands and gitignored writes end each time it finishes a turn.
 
 Not yet verified:
 - [ ] TEST1: A real preemption or period-driven checkpoint with a live subagent.
