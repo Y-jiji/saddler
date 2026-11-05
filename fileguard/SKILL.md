@@ -16,7 +16,8 @@ Do these in order:
    - SubagentStop: `<stop>`, timeout 110
    - SessionEnd: `<stop>`, timeout 110
    - Optional: `"env": {"SADDLER_CHECKPOINT_PERIOD": "300", "SADDLER_PREEMPT_WAIT": "60"}`, in seconds, these values being the defaults. Keep the wait under 100, because a waiting command can hit the Bash tool's timeout and a fork's last commit can hit the hook's.
-6. Tell the user to restart claude, then check in the new session: `echo x > .claude/x` fails with `Read-only file system`, `ls /run` fails, Write to a file outside the project is denied, a subagent's `echo x > f` leaves the real `f` unchanged and lands on branch `saddler/<session-id>/<agent-id>`, a second session's Bash does the same on `saddler/<session-id>/master`, and, if `env` is set, `echo $SADDLER_CHECKPOINT_PERIOD` prints its value.
+6. Inline every line of `PROMPT.md` from this skill's directory into `<project>/CLAUDE.md`, creating it if missing and skipping lines already there. Copy exact lines and ONLY from it. Do not invent. Do not copy the file into the project, do not add `@PROMPT.md`.
+7. Tell the user to restart claude, then check in the new session: `echo x > .claude/x` fails with `Read-only file system`, `ls /run` fails, Write to a file outside the project is denied, a subagent's `echo x > f` leaves the real `f` unchanged and lands on branch `saddler/<session-id>/<agent-id>`, a second session's Bash does the same on `saddler/<session-id>/master`, and, if `env` is set, `echo $SADDLER_CHECKPOINT_PERIOD` prints its value.
 
 Why:
 - The first session to run a command, or to use Write, Edit or NotebookEdit, owns the project and works on the real tracked files and `.git`, with gitignored folders on an overlay. Every other session, and every subagent, works on a fork.
@@ -34,7 +35,7 @@ Why:
 - `allowlist.sh` runs a command in bwrap on an empty root holding only the host `/dev`, a fresh `/proc`, every library and `PATH` directory read-only, every dot entry in `~` read-only, the entries of `whitelist.txt`, and the project, with every `.claude` read-only.
 - `whitelist.txt` is the global registry: one `ro PATH`, `rw PATH` or `private PATH STORE` per line, `~` expanded, missing paths skipped. `private` makes `PATH` writable into `STORE`, with its real entries read-only inside, so ssh can keep ControlMaster sockets in `~/.ssh`.
 - State lives in `~/.claude/sandbox/project-<percent-encoded project folder>/`: `lock/`, and `session-<session-id>/` holding `agent-<agent-id>/{fork, work, ignored, generation}`, `agent-master/` and `commit-<commit-hash>/{HEAD, index, tree, generation}`. The owner's uppers live in `<project>/.git/saddler/owner/`, so moving them is a hard link on one filesystem. A session without that folder runs unsandboxed. `SessionStart` makes it, and `pretoolusewrite.py` makes it in print mode, where `SessionStart` does not fire.
-- Claude Code's wrapper format is undocumented and tool calls are told from hook shells by it, so repeat the step 6 checks after updating Claude Code.
+- Claude Code's wrapper format is undocumented and tool calls are told from hook shells by it, so repeat the step 7 checks after updating Claude Code.
 - Steps 2 and 3 come before step 5: once `pretoolusewrite.py` is registered, Write cannot reach `~/.claude`; once the prefix is live, neither can Bash.
 - A session or project on the old hooks runs unguarded under this `sandbox.sh`: run `migrate.py <folder> --apply` outside the sandbox and restart every session. It scans the folder for `.claude`, compares each project's hook entries and hook files with the current ones, and fixes what differs.
 - `|| exit 2` denies the call if the guard is broken, instead of running it unguarded.
