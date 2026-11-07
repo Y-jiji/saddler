@@ -1,6 +1,9 @@
 # Global registry for allowlist.sh: the paths visible inside the sandbox
 # besides the project, library and PATH directories. One `ro PATH` or
 # `rw PATH` or `private PATH STORE` per line, ~ expanded, missing paths skipped.
+# A socket in a `ro` or `rw` line is refused, because read-only cannot restrict
+# it. `dbus-system NAME RULE` lets the system bus, through xdg-dbus-proxy, take
+# calls matching RULE, `[METHOD][@PATH]`, on NAME, and nothing else.
 ro /usr
 ro /etc
 ro /opt

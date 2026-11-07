@@ -1,7 +1,11 @@
 """Correctness tests for allowlist.sh."""
 
+import os
+import socket
 import subprocess
+import time
 import unittest
+from unittest import mock
 
 from test_fileguard import SandboxCase
 
@@ -38,6 +42,34 @@ class AllowTest(SandboxCase):
         self.assertEqual((self.box / "ssh" / "sock").read_text(), "sock\n")
         self.assertFalse((self.home / ".ssh" / "sock").exists())
         self.assertEqual((self.home / ".ssh" / "config").read_text(), "real\n")
+
+    def testsocket(self) -> None:
+        listener = socket.socket(socket.AF_UNIX)
+        self.addCleanup(listener.close)
+        listener.bind(str(self.home / "sock"))
+        with (self.box / "whitelist.txt").open("a") as whitelist:
+            whitelist.write("ro ~/sock\n")
+        done = self.allow("test -e ~/sock && echo seen")
+        self.assertEqual(done.stdout, "")
+        self.assertIn("is a socket", done.stderr)
+
+    def testdbus(self) -> None:
+        address = "unix:path=%s" % (self.home / "bus")
+        bus = {**os.environ, "DBUS_SESSION_BUS_ADDRESS": address}
+        for words in (["dbus-daemon", "--session", "--nofork", "--address=" + address],
+                      ["dbus-test-tool", "echo", "--name=com.example.Echo"]):
+            daemon = subprocess.Popen(words, env=bus, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.addCleanup(daemon.wait)
+            self.addCleanup(daemon.kill)
+            time.sleep(0.3)
+        with (self.box / "whitelist.txt").open("a") as whitelist:
+            whitelist.write("dbus-system com.example.Echo com.example.Iface.Allowed@/\n")
+        call = "dbus-send --system --print-reply --dest=com.example.Echo / com.example.Iface.%s"
+        with mock.patch.dict(os.environ, {"DBUS_SYSTEM_BUS_ADDRESS": address}):
+            done = self.allow("%s; %s; test -e ~/bus || echo hidden" % (call % "Allowed", call % "Other"))
+        self.assertIn("method return", done.stdout, done.stderr)
+        self.assertIn("AccessDenied", done.stderr)
+        self.assertIn("hidden", done.stdout)
 
     def testrefuse(self) -> None:
         (self.box / "whitelist.txt").unlink()
