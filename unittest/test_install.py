@@ -20,9 +20,9 @@ class InstallTest(unittest.TestCase):
         self.home = Path(holder.name)
         self.bashrc = self.home / ".bashrc"
 
-    def install(self) -> None:
-        """Run install.sh, declining to overwrite skills it installed before."""
-        subprocess.run(["bash", str(INSTALL)], input="n\n" * 20, capture_output=True, text=True, check=True,
+    def install(self, *names: str) -> None:
+        """Run install.sh on the named skills, or all, declining to overwrite skills it installed before."""
+        subprocess.run(["bash", str(INSTALL), *names], input="n\n" * 20, capture_output=True, text=True, check=True,
                        env={**os.environ, "HOME": str(self.home), "CLAUDE_SKILLS_DIR": str(self.home / "skills")})
 
     def testbashrc(self) -> None:
@@ -46,6 +46,25 @@ class InstallTest(unittest.TestCase):
         self.assertTrue(self.bashrc.is_symlink())
         self.assertIn("mine\n", target.read_text())
         self.assertIn(BEGIN, target.read_text())
+
+    def testnamed(self) -> None:
+        skills = self.home / "skills"
+        self.install("tokenline")
+        self.assertEqual([path.name for path in skills.iterdir()], ["tokenline"])
+        self.assertFalse((self.home / ".claude" / "saddler").exists())
+        self.assertFalse(self.bashrc.exists())
+        (skills / "tokenline" / "SKILL.md").write_text("old\n")
+        self.install("tokenline")
+        self.assertNotEqual((skills / "tokenline" / "SKILL.md").read_text(), "old\n")
+        self.install("fileguard")
+        self.assertTrue((self.home / ".claude" / "saddler" / "sandbox.sh").exists())
+        self.assertIn(BEGIN, self.bashrc.read_text())
+
+    def testunknown(self) -> None:
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.install("tokenline", "nosuch")
+        self.assertFalse((self.home / "skills").exists())
+        self.assertFalse(self.bashrc.exists())
 
 
 if __name__ == "__main__":

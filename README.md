@@ -4,7 +4,7 @@
 
 # Saddler: Per-Project Harness Setup Wizard
 
-To install: `bash install.sh`
+To install: `bash install.sh [NAME...]`, every skill or only the named ones
 
 To invoke: run claude code in project folder; in claude code, type one of
 - `/fileguard`: sandbox Bash, and give every session and subagent its own view of the project
