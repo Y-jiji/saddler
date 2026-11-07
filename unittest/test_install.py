@@ -47,6 +47,18 @@ class InstallTest(unittest.TestCase):
         self.assertIn("mine\n", target.read_text())
         self.assertIn(BEGIN, target.read_text())
 
+    def testwhitelist(self) -> None:
+        box = self.home / ".claude" / "sandbox"
+        box.mkdir(parents=True)
+        (box / "whitelist.txt").write_text("ro /mine\n")
+        self.install("fileguard")
+        repo = (INSTALL.parent / "fileguard" / "whitelist.txt").read_text()
+        self.assertEqual((box / "whitelist.txt").read_text(), repo)
+        self.assertEqual((box / "whitelist.txt.old").read_text(), "ro /mine\n")
+        (box / "whitelist.txt.old").unlink()
+        self.install("fileguard")
+        self.assertFalse((box / "whitelist.txt.old").exists())
+
     def testnamed(self) -> None:
         skills = self.home / "skills"
         self.install("tokenline")

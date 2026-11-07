@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 Do these in order:
 1. Check `bwrap`, `flock`, `setsid`, `nsenter`, `git` and `python3` are on `PATH`; if any is missing, stop and tell the user. `xdg-dbus-proxy` is needed only for `dbus-system` lines in `whitelist.txt`.
-2. From this skill's directory, copy `sandbox.sh`, `allowlist.sh`, `overlayfork.sh`, `checkpoint.sh`, `requestcheckpoint.sh` and `forkshell.sh` to `~/.claude/saddler/`, and `whitelist.txt` to `~/.claude/sandbox/` unless that file already exists.
+2. From this skill's directory, copy `sandbox.sh`, `allowlist.sh`, `overlayfork.sh`, `checkpoint.sh`, `requestcheckpoint.sh` and `forkshell.sh` to `~/.claude/saddler/`, and `whitelist.txt` to `~/.claude/sandbox/`, keeping a previous one that differs as `whitelist.txt.old`.
 3. Add `"env": {"CLAUDE_CODE_SHELL_PREFIX": "<absolute path of ~/.claude/saddler/sandbox.sh>"}` to `~/.claude/settings.json`.
 4. From this skill's directory, copy `sessionstartsandbox.py` and `pretoolusewrite.py` into `<project>/.claude/hooks/`.
 5. Register in `<project>/.claude/settings.json`. `<session>` is `python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstartsandbox.py"` and `<guard>` is `python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/pretoolusewrite.py" || exit 2`:

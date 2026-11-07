@@ -24,7 +24,8 @@ done
 ALL=$#
 picked() { [ "$ALL" -eq 0 ] || [ -n "${WANT[$1]:-}" ]; }
 
-# fileguard's shell scripts and registry, which run outside the project, and forkshell in ~/.bashrc
+# fileguard's shell scripts and registry, which run outside the project, and forkshell in ~/.bashrc;
+# the registry is replaced, the previous one kept as whitelist.txt.old when it differs
 if picked fileguard; then
     SADDLER="$HOME/.claude/saddler"
     BOX="$HOME/.claude/sandbox"
@@ -33,7 +34,11 @@ if picked fileguard; then
         install -m 755 "$SRC/fileguard/$NAME.sh" "$SADDLER/$NAME.sh"
     done
     rm -f "$SADDLER/gitlock.sh" "$SADDLER/gitwrap.sh" "$SADDLER/overlayowner.sh"
-    [ -e "$BOX/whitelist.txt" ] || cp "$SRC/fileguard/whitelist.txt" "$BOX/whitelist.txt"
+    if [ -e "$BOX/whitelist.txt" ] && ! cmp -s "$SRC/fileguard/whitelist.txt" "$BOX/whitelist.txt"; then
+        cp "$BOX/whitelist.txt" "$BOX/whitelist.txt.old"
+        echo "kept the previous whitelist as $BOX/whitelist.txt.old"
+    fi
+    cp "$SRC/fileguard/whitelist.txt" "$BOX/whitelist.txt"
     echo "installed fileguard scripts -> $SADDLER"
 
     # forkshell in ~/.bashrc, as one marked block replaced on every run; writing through the path keeps a symlink
