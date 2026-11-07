@@ -48,9 +48,11 @@ if [ -z "$WRAPPED" ] && [ -z "$AGENT" ]; then
         --bind "$STATE_FOLDER" "$STATE_FOLDER" --chdir "$PWD" -- bash -c -- "$RUN"
 fi
 
-# [4] tool call: the tagged subagent, or master; a project without a commit has nothing to view
+# [4] tool call: the tagged subagent, or master; a project without a commit has nothing to view,
+#     and a person's command there runs unsandboxed
 if [ -z "$AGENT" ]; then AGENT=master; fi
 if ! git -C "$PROJ_FOLDER" rev-parse --verify -q HEAD > /dev/null 2>&1; then
+    if [[ $SESSION == human-* ]]; then exec bash -c -- "$RUN"; fi
     exec "$HERE/allowlist.sh" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" \
         --chdir "$PWD" -- bash -c -- "$RUN"
 fi

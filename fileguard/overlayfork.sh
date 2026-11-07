@@ -237,8 +237,16 @@ fi
 
 # [3] start the holder unless one is live: one overlay of the real project, the .git view with each submodule's
 #     real branches, real .git read-only, every other .git folder in the project read-only;
-#     a new view checks its branches out over the base, writing only files that differ from real
+#     a new view checks its branches out over the base, writing only files that differ from real;
+#     a person's view sits on the whole host instead of allowlist.sh's, ssh drop-ins covered
 if [ -z "$LIVE" ]; then
+    LAUNCH=("$HERE/allowlist.sh" "$PROJ_FOLDER")
+    if [[ $BRANCH == session-human-* ]]; then
+        LAUNCH=(bwrap --dev-bind / /)
+        if [ -d /etc/ssh/ssh_config.d ]; then
+            LAUNCH+=(--tmpfs /etc/ssh/ssh_config.d --remount-ro /etc/ssh/ssh_config.d)
+        fi
+    fi
     MOUNTS=()
     while IFS= read -r M; do
         if [ -d "$REAL_GIT/$M/refs/heads" ] && [ -d "$PRIVATE/$M/refs/remotes/saddler" ]; then
@@ -251,7 +259,7 @@ if [ -z "$LIVE" ]; then
     START=$(mktemp -d) || exit 1
     mkfifo "$START/go" || exit 1
     exec 192<>"$START/go"
-    setsid "$HERE/allowlist.sh" "$PROJ_FOLDER" --unshare-pid --proc /proc \
+    setsid "${LAUNCH[@]}" --unshare-pid --proc /proc \
         --overlay-src "$PROJ_FOLDER" --overlay "$FORK_FOLDER/fork" "$FORK_FOLDER/work" "$PROJ_FOLDER" \
         --bind "$PRIVATE" "$PROJ_FOLDER/.git" \
         --ro-bind "$REAL_GIT/refs/heads" "$PROJ_FOLDER/.git/refs/remotes/saddler" \

@@ -40,6 +40,13 @@ class ForkShellTest(SandboxCase):
         self.assertEqual(self.forkshell("h1", "cat", "k.txt").stdout, "kept\n")
         self.assertFalse((self.root / "k.txt").exists())
 
+    def testwritable(self) -> None:
+        done = self.forkshell("h1", "bash", "-c", "echo x > .claude/x && echo y >> ~/.ssh/config && cat ~/hidden")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout, "hidden\n")
+        self.assertFalse((self.root / ".claude" / "x").exists())
+        self.assertEqual((self.home / ".ssh" / "config").read_text(), "real\ny\n")
+
     def testbadname(self) -> None:
         done = self.forkshell("bad name", "true")
         self.assertNotEqual(done.returncode, 0)
