@@ -25,3 +25,8 @@ rw ~/.m2
 rw ~/.elan
 rw ~/.config/gcloud
 private ~/.ssh ~/.claude/sandbox/ssh
+dbus-system org.bluez org.freedesktop.DBus.Introspectable.Introspect@/
+dbus-system org.bluez org.freedesktop.DBus.ObjectManager.GetManagedObjects@/
+dbus-system org.freedesktop.NetworkManager org.freedesktop.DBus.Introspectable.Introspect@/org/freedesktop/NetworkManager/*
+dbus-system org.freedesktop.NetworkManager org.freedesktop.NetworkManager.GetDevices@/org/freedesktop/NetworkManager
+dbus-system org.freedesktop.NetworkManager org.freedesktop.DBus.Properties.Get@/org/freedesktop/NetworkManager/*
