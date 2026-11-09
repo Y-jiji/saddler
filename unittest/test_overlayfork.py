@@ -1,7 +1,9 @@
 """Correctness tests for overlayfork.sh, called directly."""
 
 import os
+import shutil
 import signal
+import socket
 import subprocess
 import time
 import unittest
@@ -37,6 +39,17 @@ class ForkTest(SandboxCase):
                                str(claude or self.first.pid), *command],
                               capture_output=True, text=True, env=self.environ("s-1", self.first),
                               cwd=cwd or self.root, timeout=60)
+
+    @unittest.skipUnless(shutil.which("Xvfb"), "no Xvfb")
+    def testdisplay(self) -> None:
+        with (self.box / "whitelist.txt").open("a") as whitelist:
+            whitelist.write("rw /tmp\n")
+        done = self.fork("bash", "-c", "echo $DISPLAY ${WAYLAND_DISPLAY:-none} ${XDG_SESSION_TYPE:-none}")
+        number, wayland, session = done.stdout.split()
+        self.assertEqual((wayland, session), ("none", "none"), done.stderr)
+        self.assertRegex(number, r"^:\d+$")
+        with socket.socket(socket.AF_UNIX) as client:
+            client.connect("\0/tmp/.X11-unix/X" + number[1:])
 
     def testview(self) -> None:
         done = self.fork("bash", "-c", 'echo "[$(git status --short)]"; git log --format=%s | tr "\\n" " "; cat target/art')

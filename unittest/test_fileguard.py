@@ -200,7 +200,7 @@ class ShellTest(SandboxCase):
     def testlayout(self) -> None:
         self.shell("# saddler agent=a1\ntrue")
         agent = self.state / "session-s-1" / "agent-a1"
-        self.assertEqual({p.name for p in agent.iterdir()}, {"fork", "work", "git"})
+        self.assertEqual({p.name for p in agent.iterdir()}, {"fork", "work", "git", "display"})
         self.assertEqual({p.name for p in self.state.iterdir()}, {"lock", "session-s-1", "realgit"})
         self.assertEqual((self.lock / "s-1-a1").read_text().split()[1:3], ["0", "session-s-1/agent-a1"])
         self.assertEqual(git(self.root, "rev-parse", "session-s-1/agent-a1"), self.base)

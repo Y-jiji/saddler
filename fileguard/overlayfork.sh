@@ -238,14 +238,20 @@ fi
 # [3] start the holder unless one is live: one overlay of the real project, the .git view with each submodule's
 #     real branches, real .git read-only, every other .git folder in the project read-only;
 #     a new view checks its branches out over the base, writing only files that differ from real;
-#     a person's view sits on the whole host instead of allowlist.sh's, ssh drop-ins covered
+#     a person's view sits on the whole host instead of allowlist.sh's, ssh drop-ins covered;
+#     an agent's holder starts a private Xvfb, on an abstract socket only, and writes its display number to the
+#     display file before ready, waiting at most 3 s
 if [ -z "$LIVE" ]; then
     LAUNCH=("$HERE/allowlist.sh" "$PROJ_FOLDER")
+    HOLD='echo ready >&8; read -r _ <&7 && exec sleep infinity 7<&-'
     if [[ $BRANCH == session-human-* ]]; then
         LAUNCH=(bwrap --dev-bind / /)
         if [ -d /etc/ssh/ssh_config.d ]; then
             LAUNCH+=(--tmpfs /etc/ssh/ssh_config.d --remount-ro /etc/ssh/ssh_config.d)
         fi
+    elif command -v Xvfb > /dev/null; then
+        HOLD='exec {P}< <(exec Xvfb -displayfd 1 -nolisten tcp -nolisten unix -screen 0 1920x1080x24 2> /dev/null 6>&- 7<&- 8>&-); '\
+'read -r -t 3 N <&$P && echo "$N" >&6; exec 6>&- {P}<&-; '$HOLD
     fi
     MOUNTS=()
     while IFS= read -r M; do
@@ -266,8 +272,8 @@ if [ -z "$LIVE" ]; then
         "${MOUNTS[@]}" \
         --tmpfs "$BOX" --ro-bind "$REAL_GIT" "$STATE_FOLDER/realgit" --remount-ro "$BOX" \
         --ro-bind "$HERE" "$HERE" \
-        --info-fd 9 --chdir / -- bash -c 'echo ready >&8; read -r _ <&7 && exec sleep infinity 7<&-' \
-        7<"$START/go" 8>"$START/ready" 9>"$START/info" 192>&- 195>&- </dev/null >/dev/null 2>"$START/err" &
+        --info-fd 9 --chdir / -- bash -c "$HOLD" \
+        6>"$FORK_FOLDER/display" 7<"$START/go" 8>"$START/ready" 9>"$START/info" 192>&- 195>&- </dev/null >/dev/null 2>"$START/err" &
     for i in $(seq 1 300); do
         if [ -s "$START/ready" ]; then break; fi
         sleep 0.02
@@ -308,10 +314,17 @@ if [ -z "$LIVE" ]; then
 fi
 flock -u 195
 
-# [4] run the command in the holder
+# [4] run the command in the holder; an agent's on the private display, or on none
 CWD=$PWD
 if [ ! -d "/proc/$HOLDER/root$CWD" ]; then CWD=$PROJ_FOLDER; fi
-nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$CWD" "$@" 195>&- || rc=$?
+SCREEN=()
+if [[ $BRANCH != session-human-* ]]; then
+    SCREEN=(-u WAYLAND_DISPLAY -u XDG_SESSION_TYPE -u DISPLAY)
+    NUMBER=''
+    { read -r NUMBER < "$FORK_FOLDER/display"; } 2>/dev/null
+    if [[ $NUMBER =~ ^[0-9]+$ ]]; then SCREEN=(-u WAYLAND_DISPLAY -u XDG_SESSION_TYPE "DISPLAY=:$NUMBER"); fi
+fi
+nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$CWD" "${SCREEN[@]}" "$@" 195>&- || rc=$?
 if [ "$rc" -ge 128 ]; then
     for i in $(seq 1 100); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
 fi
