@@ -61,20 +61,20 @@ class InstallTest(unittest.TestCase):
 
     def testnamed(self) -> None:
         skills = self.home / "skills"
-        self.install("tokenline")
-        self.assertEqual([path.name for path in skills.iterdir()], ["tokenline"])
+        self.install("codeguide")
+        self.assertEqual([path.name for path in skills.iterdir()], ["codeguide"])
         self.assertFalse((self.home / ".claude" / "saddler").exists())
         self.assertFalse(self.bashrc.exists())
-        (skills / "tokenline" / "SKILL.md").write_text("old\n")
-        self.install("tokenline")
-        self.assertNotEqual((skills / "tokenline" / "SKILL.md").read_text(), "old\n")
+        (skills / "codeguide" / "SKILL.md").write_text("old\n")
+        self.install("codeguide")
+        self.assertNotEqual((skills / "codeguide" / "SKILL.md").read_text(), "old\n")
         self.install("fileguard")
         self.assertTrue((self.home / ".claude" / "saddler" / "sandbox.sh").exists())
         self.assertIn(BEGIN, self.bashrc.read_text())
 
     def testunknown(self) -> None:
         with self.assertRaises(subprocess.CalledProcessError):
-            self.install("tokenline", "nosuch")
+            self.install("codeguide", "nosuch")
         self.assertFalse((self.home / "skills").exists())
         self.assertFalse(self.bashrc.exists())
 

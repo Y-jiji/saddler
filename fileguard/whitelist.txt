@@ -13,7 +13,6 @@ ro ~/.gitconfig
 ro ~/.config/git
 ro ~/.npmrc
 ro ~/.claude/shell-snapshots
-ro ~/.claude/statusline.sh
 rw /tmp
 rw ~/.cache
 rw ~/.cargo/registry

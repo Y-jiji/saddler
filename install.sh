@@ -30,7 +30,7 @@ if picked fileguard; then
     SADDLER="$HOME/.claude/saddler"
     BOX="$HOME/.claude/sandbox"
     mkdir -p "$SADDLER" "$BOX"
-    for NAME in sandbox allowlist overlayfork checkpoint requestcheckpoint forkshell; do
+    for NAME in sandbox allowlist overlayfork checkpoint requestcheckpoint forkshell statusline; do
         install -m 755 "$SRC/fileguard/$NAME.sh" "$SADDLER/$NAME.sh"
     done
     rm -f "$SADDLER/gitlock.sh" "$SADDLER/gitwrap.sh" "$SADDLER/overlayowner.sh"

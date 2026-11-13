@@ -11,7 +11,6 @@ To invoke: run claude code in project folder; in claude code, type one of
 - `/codeguide`: software engineering instructions
 - `/mathguide`: formally verified (Lean) math project instructions
 - `/evalguide`: system evaluation repository layout
-- `/tokenline`: status line `<TOKEN COUNT> @ <FOLDER> (<BRANCH>)`
 
 # Design
 

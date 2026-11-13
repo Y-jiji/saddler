@@ -19,7 +19,8 @@ ROOT: Final = "~/Documents/Project"
 OLD: Final = ("edit_guard.py", "edit_hint.py", "write_guard.py",
               "sessionstartsandbox.py", "pretoolusewrite.py", "subagentstop.sh")
 NEW: Final = ("pretoolusewrite.py", "sessionstartsandbox.py")
-SCRIPTS: Final = ("sandbox.sh", "allowlist.sh", "overlayfork.sh", "checkpoint.sh", "requestcheckpoint.sh", "forkshell.sh")
+SCRIPTS: Final = ("sandbox.sh", "allowlist.sh", "overlayfork.sh", "checkpoint.sh", "requestcheckpoint.sh", "forkshell.sh",
+           "statusline.sh")
 SKIP: Final = ("node_modules", "target")
 SESSION_START: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstartsandbox.py"'
 WRITE_GUARD: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/pretoolusewrite.py" || exit 2'
