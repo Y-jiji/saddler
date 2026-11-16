@@ -22,6 +22,7 @@
         + `fn` should use 1 to 3 word `flatcase`
     + type and type class: 
         + `struct` / `enum` / `trait` / `type` name : descriptive `CamelCase` with no word count limit
+        + generics type should be abbrieved `CamelCase` like `Ty`
         + `struct` field name : 1 or 2 word `flatcase`; per struct, fields all same length
         + `enum` variant name : 1 or 2 word `CamelCase`; per enum, variants all same length
     + method and variables: 
@@ -72,13 +73,14 @@
         + `class` field name: 1 or 3 word `snake_case`; per class, fields all same length
         + `class` / `concept` method name: 1 to 3 word `snake_case`
         + in `class` block, only declare member fields and methods, leave definition outside
+        + `template <typename Ty>` prefer `CamelCase` abbrievation
     + method and variables: 
     + comment: 
         + always use `/** */` before a function, follow doxygen style
         + use labels to comment like `// [1] ...`, `// [2] ...`, ... in a function body's top-level indent
     + **Extension (CUDA)**
         + file name (cu, cuh): `flatcase.{cu, cuh}`
-        + comment: a kernel documents its index layout, not its arithmetic; the buffer order it maintains belongs in the `@class` block
+        + comment (function): a kernel documents its index layout, not its arithmetic
 + **PYTHON**
     + file / module layout: 
         + managed by `uv`: `pyproject.toml` at the root, code in `src/<package>/`, commands exposed through `[project.scripts]`
@@ -110,7 +112,6 @@
         + Test written after implementation and passes immediately is garbage
         + Remove them immediately after you find such tests
 + **RUST**
-    + for a file, test lines should be smaller than implementation code
     + `#[cfg(test)] mod correct { ... }` sibling to tested `struct` for correctness
         + `#[test]` + `fn funcname() { ... }`
     + `#[cfg(test)] mod profile { ... }` sibling to tested `struct` for performance
@@ -119,6 +120,22 @@
 + **TYPESCRIPT**
     + for a file, test lines 
 + **CPP**
+    + place all unittests in folder `PROJECT_ROOT/unittest/` besides `PROJECT_ROOT/src/`
+        + make it available to `ctest` by `add_executable`, `add_test`
+    + for correctness, write `unittest/test_[unit]_[property_name].cpp`
+        + `main` returns 0 (success) or 1 (failure)
+        + `main` runs a table of tests, print `[PASS]` / `[FAIL]` for each
+    + for performance, write `unittest/prof_[unit]_[metric_name].cpp`
+    + **Extension (CUDA)**
+        + For correctness and performance, sweep all admissible shapes and all admissible template parameters
+        + assert on the host after `cudaDeviceSynchronize`, never inside a kernel
 + **PYTHON**
+    + place all unittests in folder `PROJECT_ROOT/unittest/` besides `PROJECT_ROOT/src/`
+    + for correctness, write `unittest/test_*.py`, make it available to `python -m unittest`
 
 # Scripting
+
++ **GENERAL**
+    + Linear style
+        + A script should look linear and can be step-by-step followed
+        + Every step delievers a handful of states into the next step
