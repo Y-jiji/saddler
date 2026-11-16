@@ -62,6 +62,10 @@ class ForkShellTest(SandboxCase):
         done = self.forkshell("s-1", "git", "branch", "--show-current", agent="a1")
         self.assertEqual(done.stdout, "session-s-1/agent-a1\n", done.stderr)
 
+    def testbranchname(self) -> None:
+        done = self.forkshell("session-s-1", "git", "branch", "--show-current", agent="agent-a1")
+        self.assertEqual(done.stdout, "session-s-1/agent-a1\n", done.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

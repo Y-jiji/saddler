@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # forkshell.sh SESSION[/AGENT] [COMMAND...]
+# SESSION[/AGENT] may also be the branch name session-SESSION[/agent-AGENT]
 # COMMAND, or an interactive bash, on one agent's own view of the project, named by
 #   SESSION                 the session; one starting with human- gets a person's view
 #   AGENT                   the agent, default master
@@ -20,10 +21,13 @@ export CLAUDE_PID=${CLAUDE_PID:-$PPID}
 SPEC=${1:-}
 SESSION=${SPEC%%/*} AGENT=master
 if [[ $SPEC == */* ]]; then AGENT=${SPEC#*/}; fi
+SESSION=${SESSION#session-}
+AGENT=${AGENT#agent-}
 
 # [1] the project, its state folder and the session folder, made if missing; refuse a bad session id or agent name
 if [[ ! $SESSION =~ ^[A-Za-z0-9-]+$ ]]; then
-    echo "usage: forkshell.sh SESSION[/AGENT] [COMMAND...], SESSION being letters, digits and dashes" >&2
+    echo "usage: forkshell.sh SESSION[/AGENT] [COMMAND...], or session-SESSION[/agent-AGENT] for SESSION[/AGENT]," \
+        "SESSION being letters, digits and dashes" >&2
     exit 1
 fi
 if [[ ! $AGENT =~ ^[A-Za-z0-9_@-][A-Za-z0-9_@.-]*$ || $AGENT == *.lock || $AGENT == *..* ]]; then
