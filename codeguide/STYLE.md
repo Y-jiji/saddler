@@ -1,7 +1,15 @@
 # Style
 
 To write a syntax item in production code, use the following convention:
-+ **RUST (system internals style)**
++ **GENERAL**
+    + Minimize caller obligation / context dependence:
+        + For a given type, can all public methods of an object be called in any order under any concurrency?
+        + If cannot, make the type system forbid such usage.
+        + If cannot, panic loudly when things go wrong and make sure this obligation does not propagate through the system.
+            + Wherever such obligation needs fulfilling, mark them into comment of both callee function and caller function.
+    + Ensure unique path to every ident:
+        + To publish a type/function/etc., either re-export through the super module or publish a submodule directly, never both.
++ **RUST**
     + file / module layout: 
         + `mod` name: one word, or two word `flatcase`
         + either export through `pub use` or `pub mod`, never both
@@ -21,7 +29,7 @@ To write a syntax item in production code, use the following convention:
             + 6 args `SHAME(MANYARG)`
             + 60 lines `SHAME(TALLFUNC)`
             + 120 chars `SHAME(WIDEFUNC)`
-+ **TYPESCRIPT (web-like app style)**
++ **TYPESCRIPT**
     + file / module layout: 
         + file name: `kebab-case.ts`
         + configure module resolution in each package: `folder` -> `folder/index.ts`
@@ -43,7 +51,7 @@ To write a syntax item in production code, use the following convention:
         + always use `/** */`, do not comment in function bodies, follow doxygen style
         + add literal tags in comments to functions more than 
             + 6 args `SHAME(MANYARG)`
-            + 60 lines `SHAME(TALLFUNC)`
+            + 100 lines `SHAME(TALLFUNC)`
             + 120 chars `SHAME(WIDEFUNC)`
     + **Extension (TSX)**
         + file name (tsx): `ComponentName.tsx`
@@ -56,7 +64,7 @@ To write a syntax item in production code, use the following convention:
         + type name (svelte): `ComponentNameProps`
         + props destructured in `let { ... }: ComponentNameProps = $props()`, never read through one `props` binding
         + handler name : `onEventName` as a prop, `handleEventName` in the body
-+ **CPP (system internals style, before CPP 2020)**
++ **CPP**
     + file / module layout: 
         + file name: `src/flatcase.{cpp, cc, cxx}` and `include/flatcase.{hpp, hh, hxx}`
         + do not rely on transitive `#include`
@@ -66,16 +74,19 @@ To write a syntax item in production code, use the following convention:
         + `class` / `concept` name: descriptive `CamelCase` with no word count limit
         + `class` field name: 1 or 2 word `flatcase`; per class, fields all same length
         + `class` / `concept` method name: 1 to 2 word `flatcase`
+        + in `class` block, only declare member fields and methods, leave definition outside
     + method and variables: 
     + comment: 
-        + always use `/** */`, do not comment in function bodies, follow doxygen style
+        + always use `/** */` before a function, follow doxygen style
+        + use labels to comment like `// [1] ...`, `// [2] ...`, ...; each label is short pharse
         + add literal tags in comments to functions more than 
             + 6 args `SHAME(MANYARG)`
-            + 60 lines `SHAME(TALLFUNC)`
+            + 100 lines `SHAME(TALLFUNC)`
             + 120 chars `SHAME(WIDEFUNC)`
     + **Extension (CUDA)**
         + file name (cu, cuh): `flatcase.{cu, cuh}`
-+ **PYTHON (uv managed, installable tool)**
+        + comment: for each function, describe variable shape `@param [N, K] register`
++ **PYTHON**
     + file / module layout: 
         + file name: 
         + ...
@@ -83,7 +94,17 @@ To write a syntax item in production code, use the following convention:
 
 # Automated Unit Testing
 
++ **GENERAL**
+    + Test 
+    + Avoid tautology
+        + Test written after implementation and passes immediately is garbage
+        + Remove them immediately after you find such tests
 + **RUST (system internals style)**
-+ **TYPESCRIPT (web-like app style)**
-+ **CPP (system internals style, before CPP 2020)**
-+ **PYTHON (uv managed, installable tool)**
+    + for a file, test lines should be smaller than implementation code
+    + `mod correct { ... }` sibling to tested `struct` for correctness
+        + `#[test]` + `fn funcname() { ... }`
+    + `mod profile { ... }` sibling to tested `struct` for performance
+        + `#[test]` + `#[ignore]` + `fn funcname() { ... }`
++ **TYPESCRIPT**
++ **CPP**
++ **PYTHON**
