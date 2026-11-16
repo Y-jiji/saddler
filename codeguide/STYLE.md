@@ -10,6 +10,10 @@ To write a syntax item in production code, use the following convention:
         + Caller should be able to use methods without preparation. 
     + Ensure unique path to every ident:
         + To publish a type/function/etc., either re-export through the super module or publish a submodule directly, never both.
+    + Tag a function in the last line of its comment block, as `SADDLER: SHAME(MANYARG), ...`, for each limit it exceeds:
+        + 6 args `SHAME(MANYARG)`
+        + 60 lines for RUST / PYTHON, 100 lines for TYPESCRIPT / CPP `SHAME(TALLFUNC)`
+        + 120 chars `SHAME(WIDEFUNC)`
 + **RUST**
     + file / module layout: 
         + `mod` name: one word, or two word `flatcase`
@@ -26,10 +30,6 @@ To write a syntax item in production code, use the following convention:
         + `let`: 1 or 2 word `flatcase`
     + comment: 
         + always use `/// `, do not comment in function bodies; per block at most 60 words.
-        + add literal tags in comments to functions more than 
-            + 6 args `SHAME(MANYARG)`
-            + 60 lines `SHAME(TALLFUNC)`
-            + 120 chars `SHAME(WIDEFUNC)`
 + **TYPESCRIPT**
     + file / module layout: 
         + file name: `kebab-case.ts`
@@ -51,10 +51,6 @@ To write a syntax item in production code, use the following convention:
         + variable names are 1 to 3 word `camelCase`
     + comment: 
         + always use `/** */`, do not comment in function bodies, follow doxygen style
-        + add literal tags in comments to functions more than 
-            + 6 args `SHAME(MANYARG)`
-            + 100 lines `SHAME(TALLFUNC)`
-            + 120 chars `SHAME(WIDEFUNC)`
     + **Extension (TSX)**
         + file name (tsx): `ComponentName.tsx`
         + type name (tsx): `ComponentNameProps` 
@@ -81,10 +77,6 @@ To write a syntax item in production code, use the following convention:
     + comment: 
         + always use `/** */` before a function, follow doxygen style
         + use labels to comment like `// [1] ...`, `// [2] ...`, ... in a function body's top-level indent
-        + add literal tags in comments to functions more than 
-            + 6 args `SHAME(MANYARG)`
-            + 100 lines `SHAME(TALLFUNC)`
-            + 120 chars `SHAME(WIDEFUNC)`
     + **Extension (CUDA)**
         + file name (cu, cuh): `flatcase.{cu, cuh}`
         + comment: for each function, describe shape `@param [N, K] register` or `@param [N, K] shared`
@@ -107,10 +99,6 @@ To write a syntax item in production code, use the following convention:
         + annotate every parameter and return, no bare `Any`
     + comment: 
         + always use `"""..."""` as the first statement of the item, do not comment in function bodies; per block at most 60 words
-        + add literal tags in comments to functions more than 
-            + 6 args `SHAME(MANYARG)`
-            + 60 lines `SHAME(TALLFUNC)`
-            + 120 chars `SHAME(WIDEFUNC)`
 
 # Automated Unit Testing
 
