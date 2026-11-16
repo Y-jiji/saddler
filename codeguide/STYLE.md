@@ -112,10 +112,11 @@ To write a syntax item in production code, use the following convention:
         + Remove them immediately after you find such tests
 + **RUST (system internals style)**
     + for a file, test lines should be smaller than implementation code
-    + `mod correct { ... }` sibling to tested `struct` for correctness
+    + `#[cfg(test)] mod correct { ... }` sibling to tested `struct` for correctness
         + `#[test]` + `fn funcname() { ... }`
-    + `mod profile { ... }` sibling to tested `struct` for performance
+    + `#[cfg(test)] mod profile { ... }` sibling to tested `struct` for performance
         + `#[test]` + `#[ignore]` + `fn funcname() { ... }`
+    + `#[cfg(test)] mod fixture { ... }` for test-only code shared by tests of multiple types or modules
 + **TYPESCRIPT**
     + for a file, test lines 
 + **CPP**
