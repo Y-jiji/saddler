@@ -49,5 +49,5 @@ if [ -z "$WRAPPED" ] && [ -z "$AGENT" ]; then
 fi
 
 # [4] tool call: forkshell.sh, on the view of the tagged subagent, or master
-export CLAUDE_AGENT=${AGENT:-master} CLAUDE_PROJECT_DIR=$PROJ_FOLDER
-exec "$HERE/forkshell.sh" bash -c -- "$RUN"
+export CLAUDE_PROJECT_DIR=$PROJ_FOLDER
+exec "$HERE/forkshell.sh" "$SESSION/${AGENT:-master}" bash -c -- "$RUN"

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# forkshell.sh [COMMAND...]
+# forkshell.sh SESSION[/AGENT] [COMMAND...]
 # COMMAND, or an interactive bash, on one agent's own view of the project, named by
-#   CLAUDE_CODE_SESSION_ID  the session; one starting with human- gets a person's view
-#   CLAUDE_AGENT            the agent, default master
+#   SESSION                 the session; one starting with human- gets a person's view
+#   AGENT                   the agent, default master
+# and by the environment
 #   CLAUDE_PROJECT_DIR      the project, default the git project of PWD
 #   CLAUDE_PID              the Claude process, default the parent
 # sandbox.sh runs every tool call through it. The agent's branch is published when
@@ -16,20 +17,21 @@ set -euo pipefail
 : "${HOME:=$(getent passwd "$UID" | cut -d: -f6)}"
 HERE=$(dirname "$(readlink -f "$0")")
 export CLAUDE_PID=${CLAUDE_PID:-$PPID}
-export CLAUDE_AGENT=${CLAUDE_AGENT:-master}
-SESSION=${CLAUDE_CODE_SESSION_ID:-}
-AGENT=$CLAUDE_AGENT
+SPEC=${1:-}
+SESSION=${SPEC%%/*} AGENT=master
+if [[ $SPEC == */* ]]; then AGENT=${SPEC#*/}; fi
 
 # [1] the project, its state folder and the session folder, made if missing; refuse a bad session id or agent name
 if [[ ! $SESSION =~ ^[A-Za-z0-9-]+$ ]]; then
-    echo "usage: CLAUDE_CODE_SESSION_ID=SESSION [CLAUDE_AGENT=AGENT] forkshell.sh [COMMAND...]," \
-        "SESSION being letters, digits and dashes" >&2
+    echo "usage: forkshell.sh SESSION[/AGENT] [COMMAND...], SESSION being letters, digits and dashes" >&2
     exit 1
 fi
 if [[ ! $AGENT =~ ^[A-Za-z0-9_@-][A-Za-z0-9_@.-]*$ || $AGENT == *.lock || $AGENT == *..* ]]; then
     echo "forkshell.sh: bad agent name '$AGENT'" >&2
     exit 1
 fi
+shift
+export CLAUDE_CODE_SESSION_ID=$SESSION CLAUDE_AGENT=$AGENT
 PROJ_FOLDER=${CLAUDE_PROJECT_DIR:-}
 if [ -z "$PROJ_FOLDER" ]; then
     PROJ_FOLDER=$(git rev-parse --show-toplevel 2>/dev/null) || {

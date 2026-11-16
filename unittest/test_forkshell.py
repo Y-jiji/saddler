@@ -14,12 +14,10 @@ class ForkShellTest(SandboxCase):
                   stdin: str | None = None) -> subprocess.CompletedProcess[str]:
         """Run forkshell.sh in a session, on an agent if given, with the given words and input."""
         environ = {name: value for name, value in os.environ.items()
-                   if name not in ("CLAUDE_AGENT", "CLAUDE_PROJECT_DIR", "CLAUDE_PID")}
-        environ.update({"HOME": str(self.home), "TMPDIR": str(self.home / "tmp"), "TERM": "dumb",
-                        "CLAUDE_CODE_SESSION_ID": session})
-        if agent is not None:
-            environ["CLAUDE_AGENT"] = agent
-        return subprocess.run([str(self.saddler / "forkshell.sh"), *words], input=stdin, capture_output=True,
+                   if name not in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_AGENT", "CLAUDE_PROJECT_DIR", "CLAUDE_PID")}
+        environ.update({"HOME": str(self.home), "TMPDIR": str(self.home / "tmp"), "TERM": "dumb"})
+        spec = session if agent is None else session + "/" + agent
+        return subprocess.run([str(self.saddler / "forkshell.sh"), spec, *words], input=stdin, capture_output=True,
                               text=True, env=environ, cwd=self.root, timeout=60)
 
     def branch(self) -> str:
