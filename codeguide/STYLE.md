@@ -90,9 +90,27 @@ To write a syntax item in production code, use the following convention:
         + comment: for each function, describe shape `@param [N, K] register` or `@param [N, K] shared`
 + **PYTHON**
     + file / module layout: 
-        + file name: 
-        + ...
-    + ...
+        + managed by `uv`: `pyproject.toml` at the root, code in `src/<package>/`, commands exposed through `[project.scripts]`
+        + file / package name: one word, or two word `flatcase`
+        + either re-export through `__init__.py` or import the submodule directly, never both
+    + module level declaration: 
+        + constant name: 1 to 3 word `SNAKE_CAPITAL_CASE`, annotated `Final`
+        + `def` name: 1 to 3 word `flatcase`
+        + no module level mutable state
+    + type and type class: 
+        + `class` / `Protocol` / `TypedDict` / `Enum` / `dataclass` name: descriptive `CamelCase` with no word count limit
+        + field name: 1 or 2 word `flatcase`; per class, fields all same length
+        + `Enum` member name: 1 or 2 word `SNAKE_CAPITAL_CASE`; per enum, members all same length
+    + method and variables: 
+        + method name: 1 or 2 word `flatcase`
+        + local / parameter name: 1 or 2 word `flatcase`
+        + annotate every parameter and return, no bare `Any`
+    + comment: 
+        + always use `"""..."""` as the first statement of the item, do not comment in function bodies; per block at most 60 words
+        + add literal tags in comments to functions more than 
+            + 6 args `SHAME(MANYARG)`
+            + 60 lines `SHAME(TALLFUNC)`
+            + 120 chars `SHAME(WIDEFUNC)`
 
 # Automated Unit Testing
 
