@@ -79,7 +79,7 @@ To write a syntax item in production code, use the following convention:
         + use labels to comment like `// [1] ...`, `// [2] ...`, ... in a function body's top-level indent
     + **Extension (CUDA)**
         + file name (cu, cuh): `flatcase.{cu, cuh}`
-        + comment: for each function, describe shape `@param [N, K] register` or `@param [N, K] shared`
+        + comment: a kernel documents its index layout, not its arithmetic; the buffer order it maintains belongs in the `@class` block
 + **PYTHON**
     + file / module layout: 
         + managed by `uv`: `pyproject.toml` at the root, code in `src/<package>/`, commands exposed through `[project.scripts]`
