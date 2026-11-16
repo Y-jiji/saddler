@@ -7,6 +7,7 @@ To write a syntax item in production code, use the following convention:
         + If cannot, make the type system forbid such usage.
         + If cannot, panic loudly when things go wrong and make sure this obligation does not propagate through the system.
             + Wherever such obligation needs fulfilling, mark them into comment of both callee function and caller function.
+        + Caller should be able to use methods without preparation. 
     + Ensure unique path to every ident:
         + To publish a type/function/etc., either re-export through the super module or publish a submodule directly, never both.
 + **RUST**
@@ -37,14 +38,15 @@ To write a syntax item in production code, use the following convention:
         + only import from ancestors' direct siblings in folder tree
     + module level declaration:
         + `const` name : literal constant 1 to 3 words `CAPITAL_SNAKE`, otherwise 1 or 2 word `camelCase`
-        + no global mutable state allowed, closure that captures other variables are also banned
+        + we do not allow globally mutable state including closure that captures other variables
     + type and type class: 
         + `type` / `interface` name : descriptive `CamelCase` with no word count limit
         + `type` / `interface` field name : 1 to 3 word `camelCase`; per struct, fields all same length
-        + we don't use `class`, `this` is tricky in this language
+        + we don't use `class`. instead we define `export interface InterfaceName { ..., methodA: (...) => Type }`
+            + use explicit function `export function newInterfaceName(...): InterfaceName { ... }`
+            + implement methods as `function methodA(self: InterfaceName, ...): Type { ... }`, use `newInterfaceName` to mount it manually on creation. 
+        + one exported `interface` per file / module
     + method and variables: 
-        + methods are added inside constructor functions `const newInterfaceName = (args: ...): InterfaceName => { ... }`
-        + methods are defined as `function methodA(self: InterfaceName, ...): Type { ... }`, hooked into `interface { ..., methodA: (...) => Type }` by `newInterfaceName`
         + method names are 1 to 3 word `camelCase`
         + variable names are 1 to 3 word `camelCase`
     + comment: 
@@ -78,14 +80,14 @@ To write a syntax item in production code, use the following convention:
     + method and variables: 
     + comment: 
         + always use `/** */` before a function, follow doxygen style
-        + use labels to comment like `// [1] ...`, `// [2] ...`, ...; each label is short pharse
+        + use labels to comment like `// [1] ...`, `// [2] ...`, ... in a function body's top-level indent
         + add literal tags in comments to functions more than 
             + 6 args `SHAME(MANYARG)`
             + 100 lines `SHAME(TALLFUNC)`
             + 120 chars `SHAME(WIDEFUNC)`
     + **Extension (CUDA)**
         + file name (cu, cuh): `flatcase.{cu, cuh}`
-        + comment: for each function, describe variable shape `@param [N, K] register`
+        + comment: for each function, describe shape `@param [N, K] register` or `@param [N, K] shared`
 + **PYTHON**
     + file / module layout: 
         + file name: 
@@ -95,7 +97,10 @@ To write a syntax item in production code, use the following convention:
 # Automated Unit Testing
 
 + **GENERAL**
-    + Test 
+    + Test from user perspective
+        + Please only test what the user will use directly
+        + Prefer pseudo random fuzz that utilizes all published methods
+        + Test case should be much shorter than implementation
     + Avoid tautology
         + Test written after implementation and passes immediately is garbage
         + Remove them immediately after you find such tests
@@ -106,5 +111,6 @@ To write a syntax item in production code, use the following convention:
     + `mod profile { ... }` sibling to tested `struct` for performance
         + `#[test]` + `#[ignore]` + `fn funcname() { ... }`
 + **TYPESCRIPT**
+    + for a file, test lines 
 + **CPP**
 + **PYTHON**
