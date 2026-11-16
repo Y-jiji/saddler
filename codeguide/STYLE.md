@@ -1,6 +1,5 @@
-# Style
+# Production Implementation Style
 
-To write a syntax item in production code, use the following convention:
 + **GENERAL**
     + Minimize caller obligation / context dependence:
         + For a given type, can all public methods of an object be called in any order under any concurrency?
@@ -44,7 +43,7 @@ To write a syntax item in production code, use the following convention:
         + `type` / `interface` field name : 1 to 3 word `camelCase`; per struct, fields all same length
         + we don't use `class`. instead we define `export interface InterfaceName { ..., methodA: (...) => Type }`
             + use explicit function `export function newInterfaceName(...): InterfaceName { ... }`
-            + implement methods as `function methodA(self: InterfaceName, ...): Type { ... }`, use `newInterfaceName` to mount it manually on creation. 
+            + implement methods as `function methodA(self: InterfaceName, ...): Type { ... }`, use `newInterfaceName` to mount it on creation. 
         + one exported `interface` per file / module
     + method and variables: 
         + method names are 1 to 3 word `camelCase`
@@ -70,8 +69,8 @@ To write a syntax item in production code, use the following convention:
     + module level declaration:
     + type and type class: 
         + `class` / `concept` name: descriptive `CamelCase` with no word count limit
-        + `class` field name: 1 or 2 word `flatcase`; per class, fields all same length
-        + `class` / `concept` method name: 1 to 2 word `flatcase`
+        + `class` field name: 1 or 3 word `snake_case`; per class, fields all same length
+        + `class` / `concept` method name: 1 to 3 word `snake_case`
         + in `class` block, only declare member fields and methods, leave definition outside
     + method and variables: 
     + comment: 
@@ -100,7 +99,7 @@ To write a syntax item in production code, use the following convention:
     + comment: 
         + always use `"""..."""` as the first statement of the item, do not comment in function bodies; per block at most 60 words
 
-# Automated Unit Testing
+# Automated Unit Testing Style
 
 + **GENERAL**
     + Test from user perspective
@@ -110,7 +109,7 @@ To write a syntax item in production code, use the following convention:
     + Avoid tautology
         + Test written after implementation and passes immediately is garbage
         + Remove them immediately after you find such tests
-+ **RUST (system internals style)**
++ **RUST**
     + for a file, test lines should be smaller than implementation code
     + `#[cfg(test)] mod correct { ... }` sibling to tested `struct` for correctness
         + `#[test]` + `fn funcname() { ... }`
@@ -121,3 +120,5 @@ To write a syntax item in production code, use the following convention:
     + for a file, test lines 
 + **CPP**
 + **PYTHON**
+
+# Scripting
