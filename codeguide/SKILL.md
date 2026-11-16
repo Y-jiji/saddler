@@ -12,7 +12,9 @@ Do these in order:
    - "Add GIT.md lines?": `Yes`, `No`
 3. Inline into `<project>/CLAUDE.md`, creating it if missing and skipping lines already there:
    - every line of `WORKFLOW.md` and `STYLE.md` outside the language bullet blocks
-   - under each header line, the bullet block of each selected language; TSX / SVELTE also pull TYPESCRIPT, CUDA pulls CPP
+   - every `**GENERAL**` bullet block
+   - under each header line, the bullet block of each selected language, its bold name possibly followed by `(...)`; TSX / SVELTE also pull TYPESCRIPT, CUDA pulls CPP
+   - inside a pulled block, an `**Extension (X)**` sub-block only if `X` is selected
    - every line of `GIT.md` if `Yes`
 
 Rules:
