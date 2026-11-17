@@ -1,49 +1,35 @@
-# Workflow
+# Change Production Code
 
-Propose is required for every critical action. Propose only what you will do but not implications, then literally present 'Say `sanction` to act'. 
-Only act on this proposal if the user says exact word 'sanction' or 'sanctioned'. 
- 
-To act, only implement what the user sanctioned / said directly inside the prompt. 
-If error happens in a critical action, the fix needs proposing + sanctioning again. Otherwise, fix in action directly. 
+Confirmation is needed before a critical action:
++ a command **known or estimated** to be longer than 5 seconds
++ apply `Write/Edit/Bash` tool to edit production source code, i.e. git tracked code in the same folder that conatins **this** CLAUDE.md file
 
-To inform, only answer what the user asked. 
-Your first sentence must be a standalone answer in less than 10 words. Prefer literal phrase over mannered prose. 
+To get such confirmation, present your change skeleton and instructions to run, then literally present 'Say `sanction` to act'. 
+Only act on last presented changes as a skeleton if the user says exact word 'sanction' or 'sanctioned'. 
+Present markdown for skeleton directly in your response. 
++ Use file name or module path as section header, no need to wrap in `...`
+    + The section body is exactly a code block
++ Use `+` for add and `-` for remove **right before target AST item** to indicate changes
+    + Show full type/trait definitions. 
+    + Fold function body, show function signature and the comment block for that function right before it. 
+        + Apply `+` and `-` before the line to show the diff (even if it is not an AST item).  
+    + Keep and follow original indentation. 
+    + We show it for rust, but it should be the same for other language's AST item 
+    ```rust
+    fn oldfunc(+a: usize, b: usize) -> Type
+    fn oldfunc(-a: usize, b: usize) -> Type
+    +fn newfunc(a: usize, b: usize) -> Type
+    -fn oldfunc(a: usize, b: usize) -> Type
+    ```
+    and
+    ```rust
+    struct A { +newfield: X, -oldfield: Y }
+    enum B { +NewVariant, -OldVariant, OldVariantAlt(-X, Y) }
+    ```
 
-Critical action: 
-+ a command **known** to be longer than 5 seconds
-+ apply `Write/Edit/Bash` tool to edit production source code, i.e. git tracked code
+To inform user about change details, only answer what the user asked for and use a dedicated turn. 
 
-To write production code, present code skeleton listing for sanctioning. Only after user sanctioning, you code. By default, attach no reasoning, prose, comments, or logic description. If user asks, use a dedicated turn to reply. 
-+ **RUST** module path `cratea::moda::modb` as section header
-    + full item removal: `-` mark before name-only item (`-mod module`), elide body; for partial update and addition, apply following rules
-    + `static` / `const` / `type` : present full
-    + `struct` / `enum` / `trait` : full, `+` mark field/variant/method addition (`+field: Type`, `+fn func(arg: TypeA) -> TypeB`), `-` mark removal
-    + `fn`: only type signature in full, `+` mark arg addition (`+arg: Type`), `-` mark removal, elide body; for added `fn`, present like `+fn func(arg: TypeA) -> TypeB`
-    + `mod` : inferrable from module path, omit dedicated presentation
-+ **TYPESCRIPT**
-    + full item removal: `-` mark before name-only item (`-interface X`), elide body; for partial update, apply following rules
-    + top-level `const` / `let` : present full; elide inner function body if it is a closure
-    + `interface` / `type` : full, `+` mark field/variant addition (`+field: Type`, `+ | {kind: "negate", lhs: Type}`), `-` mark removal
-    + `function` : only type signature in full, `+` mark arg addition (`+arg: Type`), `-` mark removal, elide body; for added `function`, present like `+function ...`
-    + `import` / file module : inferrable from path, omit dedicated presentation
-+ **TSX** (inherit **TYPESCRIPT**)
-    + TSX component `function` or `const`, still elide most body but present: binder lines `let ... : ... = use...` and full markup diff
-+ **SVELTE** (inherit **TYPESCRIPT**)
-    + In `<script>`, present lines with `$` runes
-    + Present full markup diff
-+ **CPP**
-    + full item removal: `-` mark before name-only item (`-class Thing`), elide body; for partial update, apply following rules
-    + `#define` / file scope `constexpr` / `using` : present full
-    + `class` / `struct` / `enum` : full, `+` mark field/variant/method addition (`+Type field;`), `-` mark removal, method follows function convention
-    + function: only declaration signature in full, `template` header included, `+` mark arg addition (`+Type arg`), `-` mark removal, elide body
-    + out-of-line definition : inferrable from the declaration, omit dedicated presentation
-    + `#include` / `namespace` : inferrable from item path (`ns::xx`), omit dedicated presentation
-+ **CUDA**
-    + inherit **CPP**, CUDA decoration is part of signature
-+ **PYTHON**
-    + full item removal: `-` mark before name-only item (`-def name`), elide body; for partial update, apply following rules
-    + module level binding / `Final` / `TypeAlias` : present full, initializer elided to `...` unless it is a literal
-    + `class` / `Protocol` / `TypedDict` / `Enum` / `dataclass` : full, `+` mark field/member func addition (`+field: Type`), `-` mark removal, method bodies elided
-    + `def` / `async def` : only signature in full, `+` mark arg addition (`+arg: Type`), `-` mark removal, elide body
-    + decorator : part of the signature, present the decorator line above the item it applies to
-    + `import` / package module : inferrable from path, omit dedicated presentation
+To adjust the skeleton, present only the partial skeleton about files where skeleton adjust in a dedicated turn. 
+However, full skeleton must be presented and sanctioned before changes happen. 
+
+To fix an error that happens in a critical action, the fix needs a separate sanctioning. 
