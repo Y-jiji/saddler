@@ -118,7 +118,7 @@
         + `#[test]` + `#[ignore]` + `fn funcname() { ... }`
     + `#[cfg(test)] mod fixture { ... }` for test-only code shared by tests of multiple types or modules
 + **TYPESCRIPT**
-    + for a file, test lines 
+    + place unit test in `*.test.ts` beside the tested file, for example `file.ts` -> `file.test.ts`
 + **CPP**
     + place all unittests in folder `PROJECT_ROOT/unittest/` besides `PROJECT_ROOT/src/`
         + make it available to `ctest` by `add_executable`, `add_test`
