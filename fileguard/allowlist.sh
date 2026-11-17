@@ -30,7 +30,6 @@ while read -r MODE WPATH STORE; do
         continue
     fi
     WPATH=${WPATH/#\~/$HOME}
-    STORE=${STORE/#\~/$HOME}
     if [ ! -e "$WPATH" ]; then continue; fi
     if [[ $MODE == r[ow] && -S $WPATH ]]; then
         echo "allowlist.sh: $WPATH is a socket, which $MODE cannot restrict, skipped" >&2
@@ -39,13 +38,6 @@ while read -r MODE WPATH STORE; do
     case $MODE in
         ro) args+=(--ro-bind "$WPATH" "$WPATH") ;;
         rw) args+=(--bind "$WPATH" "$WPATH") ;;
-        private)
-            if [ -L "$WPATH" ]; then continue; fi
-            mkdir -p -m 700 "$STORE"
-            args+=(--bind "$STORE" "$WPATH")
-            for e in "$WPATH"/* "$WPATH"/.[!.]*; do
-                if [ -e "$e" ]; then args+=(--ro-bind "$e" "$e"); fi
-            done ;;
     esac
 done < "$HOME/.claude/sandbox/whitelist.txt"
 if [ -d "${TMPDIR:-}" ]; then args+=(--bind "$TMPDIR" "$TMPDIR"); fi

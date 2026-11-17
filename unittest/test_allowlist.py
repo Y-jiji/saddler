@@ -35,13 +35,17 @@ class AllowTest(SandboxCase):
         self.assertEqual(done.stdout, "rc=0\n", done.stderr)
         self.assertEqual(done.stderr, "")
 
-    def testprivate(self) -> None:
-        done = self.allow("echo sock > ~/.ssh/sock; cat ~/.ssh/config; echo x >> ~/.ssh/config")
-        self.assertEqual(done.stdout, "real\n", done.stderr)
+    def testssh(self) -> None:
+        listener = socket.socket(socket.AF_UNIX)
+        self.addCleanup(listener.close)
+        listener.bind(str(self.home / ".ssh" / "cm"))
+        listener.listen(1)
+        done = self.allow("cat ~/.ssh/config; echo x > ~/.ssh/x;"
+                          " python3 -c 'import socket; socket.socket(socket.AF_UNIX).connect(\"%s\")' && echo reached"
+                          % (self.home / ".ssh" / "cm"))
+        self.assertEqual(done.stdout, "real\nreached\n", done.stderr)
         self.assertIn("Read-only", done.stderr)
-        self.assertEqual((self.box / "ssh" / "sock").read_text(), "sock\n")
-        self.assertFalse((self.home / ".ssh" / "sock").exists())
-        self.assertEqual((self.home / ".ssh" / "config").read_text(), "real\n")
+        self.assertFalse((self.home / ".ssh" / "x").exists())
 
     def testsocket(self) -> None:
         listener = socket.socket(socket.AF_UNIX)
