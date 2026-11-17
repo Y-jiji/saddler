@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse hook. Every agent works on its own view of the project, kept by a
-holder process. A subagent's Bash and Monitor commands gain a first line naming it
-for sandbox.sh. Read on project files, and Write, Edit, NotebookEdit, Grep and Glob
+holder process. Every Bash and Monitor command gains a first line naming its project
+and subagent for sandbox.sh. Read on project files, and Write, Edit, NotebookEdit, Grep and Glob
 anywhere, would act on the real project instead, so they are refused, and starting a
 subagent needs a commit.
 """
@@ -12,7 +12,6 @@ import re
 import subprocess
 import sys
 from typing import Final
-from urllib.parse import quote
 
 TAG_HEAD: Final = "# saddler"
 SHELL_TOOLS: Final = ("Bash", "Monitor")
@@ -26,9 +25,9 @@ def project_root(anchor):
     return r.stdout.strip() if r.returncode == 0 else anchor
 
 
-def tagline(agent: str | None) -> str:
+def tagline(agent: str | None, root: str) -> str:
     """The comment line sandbox.sh strips from a shell command."""
-    return TAG_HEAD + (" agent=%s" % agent if agent else "")
+    return TAG_HEAD + (" agent=%s" % agent if agent else "") + " project=" + root
 
 
 def denial(reason: str) -> dict[str, object]:
@@ -43,9 +42,8 @@ def denial(reason: str) -> dict[str, object]:
 
 
 def lockdir(root: str) -> str:
-    """The folder of a project's locks, the path sandbox.sh also builds."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "sandbox",
-                        "project-" + quote(root, safe=""), "lock")
+    """The folder of a project's locks, in its .git, the path sandbox.sh also builds."""
+    return os.path.join(root, ".git", "saddler", "lock")
 
 
 def inside(path: str, cwd: str, root: str) -> bool:
@@ -87,12 +85,12 @@ def main() -> None:
                          "project, copy it to /tmp and Read it there." % tool), sys.stdout)
         return
 
-    if tool in SHELL_TOOLS and agent:
+    if tool in SHELL_TOOLS:
         command = tooluse.get("command") or ""
         json.dump({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "updatedInput": {**tooluse, "command": tagline(agent) + "\n" + command},
+                "updatedInput": {**tooluse, "command": tagline(agent, root) + "\n" + command},
             },
         }, sys.stdout)
 

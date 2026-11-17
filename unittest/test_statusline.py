@@ -28,7 +28,7 @@ class StatusTest(unittest.TestCase):
 
     def line(self) -> str:
         """The status line for the JSON Claude Code passes."""
-        payload = {"context_window": {"total_input_tokens": 1300}, "workspace": {"current_dir": str(self.root)},
+        payload = {"context_window": {"total_input_tokens": 1300}, "workspace": {"current_dir": str(self.root), "project_dir": str(self.root)},
                    "session_id": "abc"}
         env = {**os.environ, "HOME": str(self.home)}
         return subprocess.run(["bash", str(SCRIPT)], input=json.dumps(payload), capture_output=True, text=True,
@@ -42,7 +42,7 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(self.line(), PLAIN.replace(" (main)", ""))
 
     def testsession(self) -> None:
-        (self.home / ".claude" / "sandbox" / "project-x" / "session-abc").mkdir(parents=True)
+        (self.root / ".git" / "saddler" / "session-abc").mkdir(parents=True)
         self.assertEqual(self.line(), FORKED)
 
 

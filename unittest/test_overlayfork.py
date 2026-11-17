@@ -40,6 +40,11 @@ class ForkTest(SandboxCase):
                               capture_output=True, text=True, env=self.environ("s-1", self.first),
                               cwd=cwd or self.root, timeout=60)
 
+    def testhidden(self) -> None:
+        done = self.fork("bash", "-c", "ls -A '%s/saddler'" % (self.state / "realgit"))
+        self.assertEqual((done.returncode, done.stdout), (0, ""), done.stderr)
+        self.assertTrue((self.state / "session-s-1" / "agent-a1").is_dir())
+
     @unittest.skipUnless(shutil.which("Xvfb"), "no Xvfb")
     def testdisplay(self) -> None:
         with (self.box / "whitelist.txt").open("a") as whitelist:

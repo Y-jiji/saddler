@@ -11,7 +11,6 @@ shift 3
 HERE=$(dirname "$(readlink -f "$0")")
 LOCK_FOLDER=${LOCK_FILE%/*}
 STATE_FOLDER=${LOCK_FOLDER%/*}
-BOX=${STATE_FOLDER%/*}
 REAL_GIT=$PROJ_FOLDER/.git
 BRANCH=''
 if [ -s "$LOCK_FILE" ]; then read -r _ _ BRANCH _ < "$LOCK_FILE"; fi
@@ -236,7 +235,8 @@ if [ ! -e "$PRIVATE/HEAD" ]; then
 fi
 
 # [3] start the holder unless one is live: one overlay of the real project, the .git view with each submodule's
-#     real branches, real .git read-only, every other .git folder in the project read-only;
+#     real branches, real .git read-only with its saddler folder covered, every other .git folder in the project
+#     read-only;
 #     a new view checks its branches out over the base, writing only files that differ from real;
 #     a person's view sits on the whole host instead of allowlist.sh's, ssh drop-ins covered;
 #     an agent's holder starts a private Xvfb, on an abstract socket only, and writes its display number to the
@@ -270,7 +270,7 @@ if [ -z "$LIVE" ]; then
         --bind "$PRIVATE" "$PROJ_FOLDER/.git" \
         --ro-bind "$REAL_GIT/refs/heads" "$PROJ_FOLDER/.git/refs/remotes/saddler" \
         "${MOUNTS[@]}" \
-        --tmpfs "$BOX" --ro-bind "$REAL_GIT" "$STATE_FOLDER/realgit" --remount-ro "$BOX" \
+        --ro-bind "$REAL_GIT" "$STATE_FOLDER/realgit" --tmpfs "$STATE_FOLDER/realgit/saddler" \
         --ro-bind "$HERE" "$HERE" \
         --info-fd 9 --chdir / -- bash -c "$HOLD" \
         6>"$FORK_FOLDER/display" 7<"$START/go" 8>"$START/ready" 9>"$START/info" 192>&- 195>&- </dev/null >/dev/null 2>"$START/err" &

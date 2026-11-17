@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SessionStart hook: make this session's folder under ~/.claude/sandbox.
+"""SessionStart hook: make this session's folder in the project's .git/saddler.
 
 sandbox.sh, run as CLAUDE_CODE_SHELL_PREFIX for every shell Claude Code starts,
 confines a session that has this folder and runs any other as it is. The hook

@@ -6,6 +6,7 @@ input=$(cat)
 
 tokens=$(jq -r '.context_window.total_input_tokens // 0' <<<"$input")
 dir=$(jq -r '.workspace.current_dir // .cwd // ""' <<<"$input")
+project=$(jq -r '.workspace.project_dir // .cwd // ""' <<<"$input")
 session=$(jq -r '.session_id // ""' <<<"$input")
 
 # always in thousands, one decimal: 0 -> 0k, 1300 -> 1.3k, 1000700 -> 1000.7k
@@ -26,12 +27,11 @@ short_dir() {
   esac
 }
 
-# the main agent's view branch when fileguard holds the session folder
+# the main agent's view branch when the project's .git/saddler holds the session folder
 label=''
-if [[ $session =~ ^[A-Za-z0-9-]+$ ]]; then
-  for d in "$HOME"/.claude/sandbox/project-*/session-"$session"; do
-    if [ -d "$d" ]; then label=session-$session/agent-master; fi
-  done
+root=$(git -C "${project:-.}" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$project")
+if [[ $session =~ ^[A-Za-z0-9-]+$ ]] && [ -d "$root/.git/saddler/session-$session" ]; then
+  label=session-$session/agent-master
 fi
 if [ -z "$label" ]; then
   label=$(git -C "${dir:-.}" branch --show-current 2>/dev/null)

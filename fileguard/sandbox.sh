@@ -8,32 +8,16 @@
 set -euo pipefail
 : "${HOME:=$(getent passwd "$UID" | cut -d: -f6)}"
 HERE=$(dirname "$(readlink -f "$0")")
-BOX=$HOME/.claude/sandbox
 export CLAUDE_PID=${CLAUDE_PID:-$PPID}
 SESSION=${CLAUDE_CODE_SESSION_ID:-}
 
-# [1] look up the session folder; without one, run unsandboxed; the old version's gate folder lock/checkpoint/ goes
-SESSION_FOLDER=''
-if [[ $SESSION =~ ^[A-Za-z0-9-]+$ ]]; then
-    for d in "$BOX"/project-*/session-"$SESSION"; do
-        if [ -d "$d" ]; then SESSION_FOLDER=$d; fi
-    done
-fi
-if [ -z "$SESSION_FOLDER" ]; then exec bash -c -- "$1"; fi
-STATE_FOLDER=${SESSION_FOLDER%/*}
-ENCODED=${STATE_FOLDER##*/project-}
-PROJ_FOLDER=$(printf '%b' "${ENCODED//%/\\x}")
-LOCK_FOLDER=$STATE_FOLDER/lock
-mkdir -p "$LOCK_FOLDER"
-if [ -d "$LOCK_FOLDER/checkpoint" ]; then rm -rf "$LOCK_FOLDER/checkpoint"; fi
-touch "$LOCK_FOLDER/gate" "$LOCK_FOLDER/checkpoint"
-
-# [2] split the tag out of the invocation; an old hook may still add nolock
-RUN=$1 AGENT=''
-TAG=$'^([^\n]*)# saddler( agent=([^ \n]*))?( nolock)?\n(.*)$'
+# [1] split the tag out of the invocation, naming the agent and the project; an old hook may still add nolock
+RUN=$1 AGENT='' TAGGED='' PROJ_FOLDER=${CLAUDE_PROJECT_DIR:-}
+TAG=$'^([^\n]*)# saddler( agent=([^ \n]*))?( nolock)?( project=([^\n]*))?\n(.*)$'
 if [[ $1 =~ $TAG ]]; then
-    RUN=${BASH_REMATCH[1]}${BASH_REMATCH[5]}
+    RUN=${BASH_REMATCH[1]}${BASH_REMATCH[7]}
     AGENT=${BASH_REMATCH[3]}
+    TAGGED=1 PROJ_FOLDER=${BASH_REMATCH[6]}
     if [[ -n $AGENT && ( ! $AGENT =~ ^[A-Za-z0-9_@-][A-Za-z0-9_@.-]*$ || $AGENT == *.lock || $AGENT == *..* ) ]]; then
         echo "sandbox.sh: bad agent name '$AGENT'" >&2
         exit 1
@@ -42,10 +26,16 @@ fi
 WRAPPED=''
 if [[ ${1%%$'\n'*} == *"eval '"* ]]; then WRAPPED=1; fi
 
+# [2] the session folder in the project's .git; without one, a tagged call is refused, any other runs unsandboxed
+STATE_FOLDER=$PROJ_FOLDER/.git/saddler
+if [[ ! $SESSION =~ ^[A-Za-z0-9-]+$ ]] || [ -z "$PROJ_FOLDER" ] || [ ! -d "$STATE_FOLDER/session-$SESSION" ]; then
+    if [ -n "$TAGGED" ]; then echo "sandbox.sh: no session folder in $STATE_FOLDER, run migrate.py" >&2; exit 1; fi
+    exec bash -c -- "$1"
+fi
+
 # [3] hook shell
 if [ -z "$WRAPPED" ] && [ -z "$AGENT" ]; then
-    exec "$HERE/allowlist.sh" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" \
-        --bind "$STATE_FOLDER" "$STATE_FOLDER" --chdir "$PWD" -- bash -c -- "$RUN"
+    exec "$HERE/allowlist.sh" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" --chdir "$PWD" -- bash -c -- "$RUN"
 fi
 
 # [4] tool call: forkshell.sh, on the view of the tagged subagent, or master

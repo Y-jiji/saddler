@@ -1,13 +1,13 @@
 #!/bin/bash
-# checkpoint.sh PROJ_FOLDER STATE_FOLDER [LOCK_FILE]
+# checkpoint.sh PROJ_FOLDER [LOCK_FILE]
 # The only script that changes the real project. Without LOCK_FILE, record the
 # first base or finish an interrupted checkpoint. With LOCK_FILE, that agent ran
 # git checkpoint: the default branch moves to its tip, its view becomes the real
 # project and everyone's base, each submodule follows the tip's pointers, and every
 # agent starts over from its branch.
 PROJ_FOLDER=$1
-STATE_FOLDER=$2
-LOCK_FILE=${3:-}
+STATE_FOLDER=$PROJ_FOLDER/.git/saddler
+LOCK_FILE=${2:-}
 HERE=$(dirname "$(readlink -f "$0")")
 LOCK_FOLDER=$STATE_FOLDER/lock
 MARKER=$LOCK_FOLDER/checkpointing

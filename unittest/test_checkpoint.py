@@ -17,7 +17,7 @@ class CheckpointCase(SandboxCase):
     def agent(self, command: str, agent: str = "a1", **env: str) -> subprocess.CompletedProcess[str]:
         """Run a command as one subagent, with extra environment."""
         with mock.patch.dict(os.environ, env):
-            return self.shell("# saddler agent=%s\n%s" % (agent, command))
+            return self.shell(command, agent=agent)
 
     def exists(self, ref: str) -> bool:
         """Whether a ref or object exists in the real project."""
@@ -79,7 +79,7 @@ class CheckpointTest(CheckpointCase):
         self.agent("true")
         (self.state / "session-s-1" / "agent-a1" / "git" / "checkpoint").write_text(self.base + "\n")
         (self.lock / "generation").write_text("5\n")
-        done = subprocess.run([str(self.saddler / "checkpoint.sh"), str(self.root), str(self.state), str(self.lock / "s-1-a1")],
+        done = subprocess.run([str(self.saddler / "checkpoint.sh"), str(self.root), str(self.lock / "s-1-a1")],
                               capture_output=True, text=True, env=self.environ("s-1", self.first), timeout=30)
         self.assertIn("ran first", done.stderr)
 

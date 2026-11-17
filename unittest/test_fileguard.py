@@ -12,7 +12,6 @@ import time
 import unittest
 from pathlib import Path
 from typing import Final
-from urllib.parse import quote
 
 REPO: Final = Path(__file__).resolve().parent.parent
 FILEGUARD: Final = REPO / "fileguard"
@@ -64,7 +63,7 @@ class SandboxCase(unittest.TestCase):
         self.base = git(self.root, "rev-parse", "HEAD")
         (self.root / "target").mkdir()
         (self.root / "target" / "art").write_text("art\n")
-        self.state = self.box / ("project-" + quote(str(self.root), safe=""))
+        self.state = self.root / ".git" / "saddler"
         self.lock = self.state / "lock"
         self.claudes: list[subprocess.Popen[bytes]] = []
         self.first = self.newclaude()
@@ -91,11 +90,15 @@ class SandboxCase(unittest.TestCase):
                 "CLAUDE_CODE_SHELL_PREFIX": str(self.saddler / "sandbox.sh")}
 
     def shell(self, command: str, session: str = "s-1", claude: subprocess.Popen[bytes] | None = None,
-              cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-        """Run a command as a Claude Code tool call would."""
+              cwd: Path | None = None, agent: str | None = None, tagged: bool = True) -> subprocess.CompletedProcess[str]:
+        """Run a command as a Claude Code tool call would: tagged by the hook, without CLAUDE_PROJECT_DIR."""
+        if tagged:
+            command = "# saddler%s project=%s\n%s" % (" agent=" + agent if agent else "", os.path.realpath(self.root), command)
         invocation = WRAPPER % command.replace("'", "'\\''")
+        env = self.environ(session, claude or self.first)
+        del env["CLAUDE_PROJECT_DIR"]
         return subprocess.run([str(self.saddler / "sandbox.sh"), invocation], capture_output=True, text=True,
-                              env=self.environ(session, claude or self.first), cwd=cwd or self.root, timeout=60)
+                              env=env, cwd=cwd or self.root, timeout=60)
 
     def holder(self, session: str, agent: str) -> int:
         """The holder PID in a fork's lock file."""
@@ -127,12 +130,15 @@ class HookTest(SandboxCase):
         return json.loads(done.stdout) if done.stdout else {}
 
     def testbash(self) -> None:
-        self.assertEqual(self.runhook({"tool_name": "Bash", "tool_input": {"command": "ls"}}), {})
-        self.assertEqual(self.runhook({"tool_name": "Monitor", "tool_input": {"command": "ls"}}), {})
+        for tool in ("Bash", "Monitor"):
+            output = self.runhook({"tool_name": tool, "tool_input": {"command": "ls"}})
+            self.assertEqual(output["hookSpecificOutput"]["updatedInput"]["command"],
+                             "# saddler project=%s\nls" % os.path.realpath(self.root))
 
     def testagent(self) -> None:
         output = self.runhook({"tool_name": "Monitor", "agent_id": "a1", "tool_input": {"command": "ls"}})
-        self.assertEqual(output["hookSpecificOutput"]["updatedInput"]["command"], "# saddler agent=a1\nls")
+        self.assertEqual(output["hookSpecificOutput"]["updatedInput"]["command"],
+                         "# saddler agent=a1 project=%s\nls" % os.path.realpath(self.root))
 
     def testinput(self) -> None:
         tooluse = {"command": "echo 'a'\necho b", "description": "d", "timeout": 5, "run_in_background": True}
@@ -178,10 +184,11 @@ class ShellTest(SandboxCase):
         self.assertEqual(done.stdout, "hidden\n", done.stderr)
 
     def teststrip(self) -> None:
-        done = self.shell("# saddler agent=a1\necho $LINENO 'a b'")
+        done = self.shell("echo $LINENO 'a b'", agent="a1")
         self.assertEqual(done.stdout, "1 a b\n", done.stderr)
-        done = self.shell("# saddler agent=a1 nolock\necho old")
-        self.assertEqual(done.stdout, "old\n", done.stderr)
+        done = self.shell("# saddler agent=a1 nolock\necho old", tagged=False)
+        self.assertEqual(done.stdout, "", done.stderr)
+        self.assertIn("run migrate.py", done.stderr)
 
     def testconfined(self) -> None:
         done = self.shell("echo made > made; cat '%s/hidden'; cat target/art" % self.home)
@@ -191,14 +198,14 @@ class ShellTest(SandboxCase):
         self.assertEqual(self.shell("cat made").stdout, "made\n")
 
     def testoverlay(self) -> None:
-        self.shell("# saddler agent=a1\necho changed > a.txt")
+        self.shell("echo changed > a.txt", agent="a1")
         self.assertEqual((self.root / "a.txt").read_text(), "two\n")
-        self.assertEqual(self.shell("# saddler agent=a1\ncat a.txt").stdout, "changed\n")
-        self.assertEqual(self.shell("# saddler agent=a2\ncat a.txt").stdout, "two\n")
+        self.assertEqual(self.shell("cat a.txt", agent="a1").stdout, "changed\n")
+        self.assertEqual(self.shell("cat a.txt", agent="a2").stdout, "two\n")
         self.assertEqual(self.shell("cat a.txt").stdout, "two\n")
 
     def testlayout(self) -> None:
-        self.shell("# saddler agent=a1\ntrue")
+        self.shell("true", agent="a1")
         agent = self.state / "session-s-1" / "agent-a1"
         self.assertEqual({p.name for p in agent.iterdir()}, {"fork", "work", "git", "display"})
         self.assertEqual({p.name for p in self.state.iterdir()}, {"lock", "session-s-1", "realgit"})
@@ -247,13 +254,11 @@ class ShellTest(SandboxCase):
         self.assertIn("checkpoint is running", done.stderr)
         self.assertEqual(self.shell("echo ran").stdout, "ran\n")
 
-    def testupgrade(self) -> None:
-        (self.lock / "checkpoint").mkdir(parents=True)
-        for name in ("queue", "mode"):
-            (self.lock / "checkpoint" / name).touch()
+    def testnofolder(self) -> None:
+        shutil.rmtree(self.state / "session-s-1")
         done = self.shell("echo ran")
-        self.assertEqual(done.stdout, "ran\n", done.stderr)
-        self.assertTrue((self.lock / "checkpoint").is_file())
+        self.assertEqual(done.stdout, "")
+        self.assertIn("no session folder", done.stderr)
 
     def testhookshell(self) -> None:
         done = subprocess.run([str(self.saddler / "sandbox.sh"), "cat '%s/hidden'; echo x > .claude/y; touch '%s/ok'" % (self.home, self.lock)],

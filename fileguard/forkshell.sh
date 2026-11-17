@@ -15,7 +15,6 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then
     return
 fi
 set -euo pipefail
-: "${HOME:=$(getent passwd "$UID" | cut -d: -f6)}"
 HERE=$(dirname "$(readlink -f "$0")")
 export CLAUDE_PID=${CLAUDE_PID:-$PPID}
 SPEC=${1:-}
@@ -23,8 +22,17 @@ SESSION=${SPEC%%/*} AGENT=master
 if [[ $SPEC == */* ]]; then AGENT=${SPEC#*/}; fi
 SESSION=${SESSION#session-}
 AGENT=${AGENT#agent-}
+PROJ_FOLDER=${CLAUDE_PROJECT_DIR:-$(readlink -f "$(git rev-parse --show-toplevel 2>/dev/null)" || true)}
+STATE_FOLDER=$PROJ_FOLDER/.git/saddler
+SESSION_FOLDER=$STATE_FOLDER/session-$SESSION
+FORK_FOLDER=$SESSION_FOLDER/agent-$AGENT
+LOCK_FOLDER=$STATE_FOLDER/lock
+LOCK_FILE=$LOCK_FOLDER/$SESSION-$AGENT
+BRANCH=session-$SESSION/agent-$AGENT
+RUN=("${@:2}")
+if [ $# -le 1 ]; then RUN=(bash --init-file "$HERE/forkshell.sh" -i); fi
 
-# [1] the project, its state folder and the session folder, made if missing; refuse a bad session id or agent name
+# [1] refuse a bad session id, agent name or project; make the session and lock folders
 if [[ ! $SESSION =~ ^[A-Za-z0-9-]+$ ]]; then
     echo "usage: forkshell.sh SESSION[/AGENT] [COMMAND...], or session-SESSION[/agent-AGENT] for SESSION[/AGENT]," \
         "SESSION being letters, digits and dashes" >&2
@@ -34,23 +42,10 @@ if [[ ! $AGENT =~ ^[A-Za-z0-9_@-][A-Za-z0-9_@.-]*$ || $AGENT == *.lock || $AGENT
     echo "forkshell.sh: bad agent name '$AGENT'" >&2
     exit 1
 fi
-shift
+if [ -z "$PROJ_FOLDER" ]; then echo "forkshell.sh: $PWD is not in a git project" >&2; exit 1; fi
 export CLAUDE_CODE_SESSION_ID=$SESSION CLAUDE_AGENT=$AGENT
-PROJ_FOLDER=${CLAUDE_PROJECT_DIR:-}
-if [ -z "$PROJ_FOLDER" ]; then
-    PROJ_FOLDER=$(git rev-parse --show-toplevel 2>/dev/null) || {
-        echo "forkshell.sh: $PWD is not in a git project" >&2
-        exit 1
-    }
-    PROJ_FOLDER=$(readlink -f "$PROJ_FOLDER")
-fi
-STATE_FOLDER=$HOME/.claude/sandbox/project-$(python3 -c 'import sys, urllib.parse as u; print(u.quote(sys.argv[1], safe=""))' "$PROJ_FOLDER")
-SESSION_FOLDER=$STATE_FOLDER/session-$SESSION
-LOCK_FOLDER=$STATE_FOLDER/lock
 mkdir -p "$SESSION_FOLDER" "$LOCK_FOLDER"
 touch "$LOCK_FOLDER/gate" "$LOCK_FOLDER/checkpoint"
-RUN=("$@")
-if [ $# -eq 0 ]; then RUN=(bash --init-file "$HERE/forkshell.sh" -i); fi
 
 # [2] a project without a commit has nothing to view: a person's command runs unsandboxed, an agent's under allowlist.sh
 if ! git -C "$PROJ_FOLDER" rev-parse --verify -q HEAD > /dev/null 2>&1; then
@@ -61,7 +56,7 @@ fi
 
 # [3] a checkpoint is in progress: finish it if nobody runs it, otherwise fail now
 if [ -e "$LOCK_FOLDER/checkpointing" ]; then
-    "$HERE/checkpoint.sh" "$PROJ_FOLDER" "$STATE_FOLDER" || true
+    "$HERE/checkpoint.sh" "$PROJ_FOLDER" || true
     if [ -e "$LOCK_FOLDER/checkpointing" ]; then
         echo "forkshell.sh: a checkpoint is running, run this again shortly" >&2
         exit 1
@@ -69,11 +64,9 @@ if [ -e "$LOCK_FOLDER/checkpointing" ]; then
 fi
 
 # [4] no base yet: the real project becomes the first one
-if [ ! -s "$LOCK_FOLDER/base" ]; then "$HERE/checkpoint.sh" "$PROJ_FOLDER" "$STATE_FOLDER"; fi
+if [ ! -s "$LOCK_FOLDER/base" ]; then "$HERE/checkpoint.sh" "$PROJ_FOLDER"; fi
 
 # [5] the agent's branch, from the base if missing, and its registration
-LOCK_FILE=$LOCK_FOLDER/$SESSION-$AGENT
-BRANCH=session-$SESSION/agent-$AGENT
 if ! git -C "$PROJ_FOLDER" rev-parse --verify -q "refs/heads/$BRANCH" > /dev/null; then
     git -C "$PROJ_FOLDER" update-ref "refs/heads/$BRANCH" "$(cat "$LOCK_FOLDER/base")" "" 2> /dev/null || true
 fi
@@ -95,7 +88,7 @@ rc=0
 exec 189<&-
 
 # [7] the command ran git checkpoint
-if [ -e "$SESSION_FOLDER/agent-$AGENT/git/checkpoint" ]; then
-    "$HERE/checkpoint.sh" "$PROJ_FOLDER" "$STATE_FOLDER" "$LOCK_FILE" || if [ "$rc" -eq 0 ]; then rc=1; fi
+if [ -e "$FORK_FOLDER/git/checkpoint" ]; then
+    "$HERE/checkpoint.sh" "$PROJ_FOLDER" "$LOCK_FILE" || if [ "$rc" -eq 0 ]; then rc=1; fi
 fi
 exit "$rc"
