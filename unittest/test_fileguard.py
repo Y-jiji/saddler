@@ -261,11 +261,19 @@ class ShellTest(SandboxCase):
         self.assertIn("no session folder", done.stderr)
 
     def testhookshell(self) -> None:
-        done = subprocess.run([str(self.saddler / "sandbox.sh"), "cat '%s/hidden'; echo x > .claude/y; touch '%s/ok'" % (self.home, self.lock)],
+        done = subprocess.run([str(self.saddler / "sandbox.sh"), "cat '%s/hidden'; echo x > .claude/y; touch '%s/ok'" % (self.home, self.state)],
                               capture_output=True, text=True, env=self.environ("s-1", self.first), cwd=self.root)
         self.assertIn("No such file", done.stderr)
         self.assertIn("Read-only", done.stderr)
-        self.assertTrue((self.lock / "ok").exists())
+        self.assertTrue((self.state / "ok").exists())
+
+    def testhooksubfolder(self) -> None:
+        (self.root / "sub").mkdir()
+        env = {**self.environ("s-1", self.first), "CLAUDE_PROJECT_DIR": str(self.root / "sub")}
+        done = subprocess.run([str(self.saddler / "sandbox.sh"), "cat '%s/hidden'" % self.home],
+                              capture_output=True, text=True, env=env, cwd=self.root / "sub")
+        self.assertEqual(done.stdout, "")
+        self.assertIn("No such file", done.stderr)
 
     def testnested(self) -> None:
         inner = shlex.quote(WRAPPER % "git rev-parse HEAD")

@@ -13,6 +13,7 @@ SESSION=${CLAUDE_CODE_SESSION_ID:-}
 
 # [1] split the tag out of the invocation, naming the agent and the project; an old hook may still add nolock
 RUN=$1 AGENT='' TAGGED='' PROJ_FOLDER=${CLAUDE_PROJECT_DIR:-}
+if [ -n "$PROJ_FOLDER" ]; then PROJ_FOLDER=$(git -C "$PROJ_FOLDER" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PROJ_FOLDER"); fi
 TAG=$'^([^\n]*)# saddler( agent=([^ \n]*))?( nolock)?( project=([^\n]*))?\n(.*)$'
 if [[ $1 =~ $TAG ]]; then
     RUN=${BASH_REMATCH[1]}${BASH_REMATCH[7]}

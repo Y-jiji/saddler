@@ -122,7 +122,7 @@ class ForkTest(SandboxCase):
         self.fork("true")
         lines = (self.state / "uppersize.log").read_text().splitlines()
         self.assertEqual(len(lines), 1, lines)
-        words = lines[0].split()
+        words = lines[0].split(" ", 2)[:2] + lines[0].split(" ", 2)[2].rsplit(" ", 1)
         self.assertEqual(words[1], "0")
         self.assertTrue(words[2].endswith("agent-a1/fork"), words)
         self.assertGreaterEqual(int(words[3]), 100000)
