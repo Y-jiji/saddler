@@ -56,6 +56,29 @@ submodules() {
         if [ -e "$SUB/.git" ]; then submodules "$SUB" "${META##* }"; fi
     done
 }
+# claudechanges OLD NEW: the .claude paths NEW changes since OLD, in the project and in each submodule NEW points to
+claudechanges() {
+    local SUB SHA M REL
+    local -a PATHS=(':(glob)**/.claude' ':(glob)**/.claude/**')
+    git --git-dir="$REAL_GIT" diff --name-only "$1" "$2" -- "${PATHS[@]}"
+    submodules "$PROJ_FOLDER" "$2" | while IFS=$'\t' read -r SUB SHA; do
+        if [ -e "$SUB/.git" ]; then
+            if git -C "$SUB" cat-file -e "$SHA^{commit}" 2>/dev/null; then
+                git -C "$SUB" diff --name-only HEAD "$SHA" -- "${PATHS[@]}" | sed "s|^|${SUB#"$PROJ_FOLDER"/}/|"
+            fi
+            continue
+        fi
+        # a submodule the agent added: its real git folder is the one whose work tree is SUB, compared with nothing
+        for M in $(modules "$REAL_GIT/modules" modules/); do
+            REL=$(git --git-dir="$REAL_GIT/$M" config core.worktree 2>/dev/null) || continue
+            if [ "$(realpath -m "$REAL_GIT/$M/$REL")" = "$SUB" ]; then
+                git --git-dir="$REAL_GIT/$M" diff --name-only \
+                    "$(git --git-dir="$REAL_GIT/$M" hash-object -t tree /dev/null)" "$SHA" -- "${PATHS[@]}" 2>/dev/null |
+                    sed "s|^|${SUB#"$PROJ_FOLDER"/}/|"
+            fi
+        done
+    done
+}
 forkfolder() {
     local SESSION=${1#session-}
     echo "$STATE_FOLDER/session-${SESSION%%/*}/agent-${1##*/agent-}"
@@ -124,7 +147,8 @@ if [ ! -s "$LOCK_FOLDER/base" ]; then
     exit 0
 fi
 
-# [3] a request: the agent's view is current, clean and published, and the default branch fast-forwards to it
+# [3] a request: the agent's view is current, clean and published, the default branch fast-forwards to it,
+#     and an agent's tip changes no .claude path
 if [ ! -e "$MARKER" ]; then
     if [ -z "$LOCK_FILE" ]; then exit 0; fi
     read -r HOLDER SEEN BRANCH _ BORN < "$LOCK_FILE"
@@ -148,6 +172,8 @@ if [ ! -e "$MARKER" ]; then
         REASON="the agent's view is gone"
     elif [ -n "$(nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" git status --porcelain)" ]; then
         REASON="the working tree is not clean"
+    elif [[ $BRANCH != session-human-* ]] && CHANGED=$(claudechanges "$DEFAULT" "$TIP" | head -n 1) && [ -n "$CHANGED" ]; then
+        REASON="it changes $CHANGED, and .claude is read-only to agents"
     fi
     if [ -n "$REASON" ]; then
         echo "checkpoint.sh: no checkpoint, $REASON" >&2
@@ -176,7 +202,8 @@ submodules "$PROJ_FOLDER" HEAD | while IFS=$'\t' read -r SUB _; do
     if [ -e "$SUB/.git" ]; then rescue "$SUB"; fi
 done
 
-# [6] the default branch moves to the requester's tip, the requester's upper moves into real without any .git folder,
+# [6] the default branch moves to the requester's tip, the requester's upper moves into real without any .git folder
+#     or, for an agent, any .claude folder,
 #     real HEAD stays on the branch, and each submodule's HEAD is detached where the tip points
 OLD=$(git --git-dir="$REAL_GIT" rev-parse -q --verify "$DEFAULT")
 if [ "$OLD" != "$TIP" ] &&
@@ -189,6 +216,9 @@ fi
 UPPER=$FORK_FOLDER/fork
 if [ -d "$UPPER" ]; then
     find "$UPPER" -name .git -type d -prune -exec rm -rf {} +
+    if [[ $FORK_FOLDER != */session-human-* ]]; then
+        find "$UPPER" -name .claude -prune -printf 'checkpoint.sh: dropped %P, .claude is read-only to agents\n' -exec rm -rf {} + >&2
+    fi
     find "$UPPER" -type c -printf '%P\0' | env -C "$PROJ_FOLDER" xargs -0 -r rm -rf --
     find "$UPPER" -type c -delete
     python3 -c '

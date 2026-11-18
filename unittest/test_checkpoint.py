@@ -129,6 +129,28 @@ class CheckpointTest(CheckpointCase):
         self.agent("git commit -q --allow-empty -m mine; git checkpoint")
         self.assertFalse(self.exists(loose))
 
+    def testclaudecommit(self) -> None:
+        done = self.agent("B=$(echo '{\"x\": 1}' | git hash-object -w --stdin)"
+                          " && git update-index --cacheinfo 100644,$B,.claude/settings.json"
+                          " && git update-index --skip-worktree .claude/settings.json"
+                          " && git commit -qm claude && git checkpoint")
+        self.assertIn("read-only to agents", done.stderr)
+        self.assertEqual(git(self.root, "rev-parse", "main"), self.base)
+        self.assertEqual((self.root / ".claude" / "settings.json").read_text(), "{}\n")
+
+    def testclaudeupper(self) -> None:
+        done = self.agent("mkdir -p sub/.claude .git/info && echo x > sub/.claude/x && echo sub/.claude >> .git/info/exclude"
+                          " && echo moved > a.txt && git commit -qam moved && git checkpoint")
+        self.assertIn("dropped sub/.claude", done.stderr)
+        self.assertEqual(git(self.root, "log", "-1", "--format=%s", "main"), "moved")
+        self.assertFalse((self.root / "sub" / ".claude").exists())
+
+    def testclaudehuman(self) -> None:
+        self.session("human-x")
+        done = self.shell("echo '{\"x\": 1}' > .claude/settings.json && git commit -qam claude && git checkpoint", "human-x")
+        self.assertIn("every agent's base", done.stderr)
+        self.assertEqual((self.root / ".claude" / "settings.json").read_text(), '{"x": 1}\n')
+
 
 if __name__ == "__main__":
     unittest.main()
