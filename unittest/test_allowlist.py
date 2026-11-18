@@ -57,6 +57,17 @@ class AllowTest(SandboxCase):
         self.assertEqual(done.stdout, "")
         self.assertIn("is a socket", done.stderr)
 
+    def testprivate(self) -> None:
+        state = self.home / ".local" / "state" / "tool"
+        state.mkdir(parents=True)
+        (state / "old").write_text("real\n")
+        with (self.box / "whitelist.txt").open("a") as whitelist:
+            whitelist.write("private ~/.local/state/tool\nprivate ~/hidden\n")
+        done = self.allow("cat ~/.local/state/tool/old; echo new > ~/.local/state/tool/new && cat ~/.local/state/tool/new")
+        self.assertEqual(done.stdout, "real\nnew\n", done.stderr)
+        self.assertFalse((state / "new").exists())
+        self.assertIn("not a folder", done.stderr)
+
     def testdbus(self) -> None:
         address = "unix:path=%s" % (self.home / "bus")
         bus = {**os.environ, "DBUS_SESSION_BUS_ADDRESS": address}

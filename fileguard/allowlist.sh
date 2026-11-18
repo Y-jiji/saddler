@@ -22,7 +22,8 @@ done < <({ ldconfig -p | sed -n 's|.* => \(.*\)/[^/]*$|\1|p'
 for e in "$HOME"/.[!.]*; do
     if [ -e "$e" ] && [ ! -L "$e" ]; then args+=(--ro-bind "$e" "$e"); fi
 done
-# [4] whitelist.txt, $TMPDIR; a socket in a ro or rw line is refused, dbus-system lines are collected
+# [4] whitelist.txt, $TMPDIR; a socket in a ro or rw line is refused, a private folder gets a throwaway upper,
+#     dbus-system lines are collected
 CALLS=()
 while read -r MODE WPATH STORE; do
     if [ "$MODE" = dbus-system ]; then
@@ -38,6 +39,9 @@ while read -r MODE WPATH STORE; do
     case $MODE in
         ro) args+=(--ro-bind "$WPATH" "$WPATH") ;;
         rw) args+=(--bind "$WPATH" "$WPATH") ;;
+        private)
+            if [ -d "$WPATH" ]; then args+=(--overlay-src "$WPATH" --tmp-overlay "$WPATH")
+            else echo "allowlist.sh: $WPATH is not a folder, which private cannot overlay, skipped" >&2; fi ;;
     esac
 done < "$HOME/.claude/sandbox/whitelist.txt"
 if [ -d "${TMPDIR:-}" ]; then args+=(--bind "$TMPDIR" "$TMPDIR"); fi

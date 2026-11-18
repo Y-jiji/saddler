@@ -4,6 +4,8 @@
 # A socket in a `ro` or `rw` line is refused, because read-only cannot restrict
 # it. `dbus-system NAME RULE` lets the system bus, through xdg-dbus-proxy, take
 # calls matching RULE, `[METHOD][@PATH]`, on NAME, and nothing else.
+# `private PATH` gives a folder a private copy: commands read the real one and
+# write to a throwaway upper, gone when the sandbox ends.
 ro /usr
 ro /etc
 ro /opt
@@ -23,6 +25,7 @@ rw ~/.gradle
 rw ~/.m2
 rw ~/.elan
 rw ~/.config/gcloud
+private ~/.local/state/nvim
 dbus-system org.bluez org.freedesktop.DBus.Introspectable.Introspect@/
 dbus-system org.bluez org.freedesktop.DBus.ObjectManager.GetManagedObjects@/
 dbus-system org.freedesktop.NetworkManager org.freedesktop.DBus.Introspectable.Introspect@/org/freedesktop/NetworkManager/*
