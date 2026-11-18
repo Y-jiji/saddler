@@ -68,6 +68,12 @@
         + do not rely on transitive `#include`
         + `src/` and `include/` should have the same folder tree structure
     + module level declaration:
+        + `namespace` name: one word, or two word `flatcase`
+        + constant name: 1 to 3 word `SNAKE_CAPITAL_CASE`, declared `constexpr`, `inline constexpr` in a header
+        + free function name: 1 to 3 word `snake_case`
+        + no mutable state at namespace scope or in `static` locals
+        + helpers used only in one `src/` file go in an unnamed `namespace { ... }` there, never `static`
+        + `#define` only where `constexpr` or a `template` cannot do it, named `SNAKE_CAPITAL_CASE` with the project name as first word
     + type and type class: 
         + `class` / `concept` name: descriptive `CamelCase` with no word count limit
         + `class` field name: 1 or 3 word `snake_case`; per class, fields all same length
