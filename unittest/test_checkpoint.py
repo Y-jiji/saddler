@@ -151,6 +151,17 @@ class CheckpointTest(CheckpointCase):
         self.assertIn("every agent's base", done.stderr)
         self.assertEqual((self.root / ".claude" / "settings.json").read_text(), '{"x": 1}\n')
 
+    def testclaudebehind(self) -> None:
+        self.agent("echo w > w.txt && git add w.txt && git commit -qm w", agent="a2")
+        self.session("human-x")
+        done = self.shell("echo '{\"x\": 1}' > .claude/settings.json && git commit -qam claude && git checkpoint", "human-x")
+        self.assertIn("every agent's base", done.stderr)
+        done = self.agent("cat w.txt .claude/settings.json && git status --short", agent="a2")
+        self.assertEqual(done.stdout, 'w\n{"x": 1}\n', done.stderr)
+        done = self.agent("git merge -q saddler/main -m merged && git checkpoint", agent="a2")
+        self.assertIn("every agent's base", done.stderr)
+        self.assertEqual((self.root / "w.txt").read_text(), "w\n")
+
 
 if __name__ == "__main__":
     unittest.main()

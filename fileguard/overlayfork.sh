@@ -193,7 +193,8 @@ if [ "$SEEN" != "$GENERATION" ]; then
 fi
 
 # [2] the privatized .git view: own HEAD, index, refs and config, objects staged here and read from real,
-#     and one such git folder for each real submodule
+#     and one such git folder for each real submodule; an agent's is a sparse checkout without .claude,
+#     which stays the real project's
 FRESH=''
 if [ ! -e "$PRIVATE/HEAD" ]; then
     survey "$REAL_GIT"
@@ -216,6 +217,11 @@ if [ ! -e "$PRIVATE/HEAD" ]; then
            gitdir "$BUILD/.git" symbolic-ref HEAD "refs/heads/$BRANCH" &&
            gitdir "$BUILD/.git" config include.path "$STATE_FOLDER/realgit/config" &&
            gitdir "$BUILD/.git" config gc.auto 0 &&
+           { [[ $BRANCH == session-human-* ]] || {
+                 gitdir "$BUILD/.git" config core.sparseCheckout true &&
+                 gitdir "$BUILD/.git" config core.sparseCheckoutCone false &&
+                 gitdir "$BUILD/.git" config sparse.expectFilesOutsideOfPatterns true &&
+                 mkdir -p "$BUILD/.git/info" && printf '/*\n!.claude/\n' > "$BUILD/.git/info/sparse-checkout"; }; } &&
            gitdir "$BUILD/.git" config alias.checkpoint "!$HERE/requestcheckpoint.sh ${DEFAULT#refs/heads/}" &&
            mkdir -p "$BUILD/.git/refs/remotes/saddler" "$BUILD/.git/objects/info" &&
            printf '%s\n' "$STATE_FOLDER/realgit/objects" > "$BUILD/.git/objects/info/alternates" &&
@@ -238,6 +244,7 @@ fi
 #     real branches, real .git read-only with its saddler folder covered, every other .git folder in the project
 #     read-only;
 #     a new view checks its branches out over the base, writing only files that differ from real;
+#     an agent's marks .claude skip-worktree first, so it is never written
 #     a person's view sits on the whole host instead of allowlist.sh's, ssh drop-ins covered;
 #     an agent's holder starts a private Xvfb, on an abstract socket only, and writes its display number to the
 #     display file before ready, waiting at most 3 s
@@ -288,7 +295,7 @@ if [ -z "$LIVE" ]; then
     BORN=$(starttime "$HOLDER")
     echo go >&192
     exec 192>&-
-    CHECKOUT='git read-tree "$1" && { git update-index -q --refresh > /dev/null; git read-tree -m -u "$1" "$2"; }'
+    CHECKOUT='git read-tree "$1" && { [ "$(git config core.sparseCheckout)" != true ] || git ls-files -z -- ":(glob)**/.claude/**" | git update-index -z --skip-worktree --stdin; } && { git update-index -q --refresh > /dev/null; git read-tree -m -u "$1" "$2"; }'
     if [ -n "$FRESH" ]; then
         FAILED=''
         nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" \
