@@ -80,8 +80,9 @@ class SubmoduleTest(CheckpointCase):
     def testclaudechange(self) -> None:
         done = self.agent("cd sub && mkdir .claude && echo x > .claude/x && git add .claude && git commit -qm c"
                           " && cd .. && git add sub && git commit -qm bump && git checkpoint")
-        self.assertIn("it changes sub/.claude/x", done.stderr)
-        self.assertEqual(git(self.root, "rev-parse", "main"), self.start)
+        self.assertIn("every agent's base", done.stderr)
+        self.assertEqual((self.root / "sub" / ".claude" / "x").read_text(), "x\n")
+        self.assertEqual(git(self.root, "status", "--porcelain"), "")
 
     def testclaudeadd(self) -> None:
         two = self.repo("two", "m.txt")
@@ -90,9 +91,21 @@ class SubmoduleTest(CheckpointCase):
         git(two, "add", "-A")
         git(two, "commit", "-qm", "claude")
         done = self.agent("git %s submodule add -q %s sub2 && git commit -qm add2 && git checkpoint" % (" ".join(FILES), two))
-        self.assertIn("it changes sub2/.claude/settings.json", done.stderr)
-        self.assertEqual(git(self.root, "rev-parse", "main"), self.start)
-        self.assertFalse((self.root / "sub2").exists())
+        self.assertIn("every agent's base", done.stderr)
+        self.assertEqual((self.root / "sub2" / ".claude" / "settings.json").read_text(), "{}\n")
+        self.assertEqual(git(self.root, "status", "--porcelain"), "")
+
+    def testclaudeedit(self) -> None:
+        (self.root / "sub" / ".claude").mkdir()
+        (self.root / "sub" / ".claude" / "x").write_text("x\n")
+        git(self.root / "sub", "add", "-A")
+        git(self.root / "sub", "commit", "-qm", "claude")
+        git(self.root, "add", "sub")
+        git(self.root, "commit", "-qm", "bump")
+        done = self.agent("cd sub && echo y > .claude/x && git commit -qam edit && cd .. && git commit -qam bump && git checkpoint")
+        self.assertIn("every agent's base", done.stderr)
+        self.assertEqual((self.root / "sub" / ".claude" / "x").read_text(), "y\n")
+        self.assertEqual(git(self.root, "status", "--porcelain"), "")
 
     def testnested(self) -> None:
         deep = self.repo("deep", "d.txt")

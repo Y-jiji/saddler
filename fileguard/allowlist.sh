@@ -69,9 +69,19 @@ if [ ${#CALLS[@]} -gt 0 ]; then
 fi
 # [7] MOUNT_ARGS
 args+=("${MOUNTS[@]}")
-# [8] every .claude in the project, read-only
+# [8] every .claude in the project outside a folder holding its own .git, such as a submodule, read-only
+REPOS=()
+CLAUDES=()
 while IFS= read -r -d '' p; do
-    args+=(--ro-bind "$p" "$p")
-done < <(find "$PROJ_FOLDER" -name .git -prune -o ! -type l -name .claude -prune -print0)
+    case $p in
+        g"$PROJ_FOLDER") ;;
+        g*) REPOS+=("${p#g}") ;;
+        *) CLAUDES+=("${p#c}") ;;
+    esac
+done < <(find "$PROJ_FOLDER" -name .git -printf 'g%h\0' -prune -o ! -type l -name .claude -printf 'c%p\0' -prune)
 wait $! || { echo "allowlist.sh: cannot scan $PROJ_FOLDER" >&2; exit 1; }
+for p in "${CLAUDES[@]}"; do
+    for r in "${REPOS[@]}"; do if [[ $p == "$r"/* ]]; then continue 2; fi; done
+    args+=(--ro-bind "$p" "$p")
+done
 exec bwrap "${args[@]}" --remount-ro / -- "$@"

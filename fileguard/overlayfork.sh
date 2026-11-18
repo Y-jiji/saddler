@@ -193,8 +193,8 @@ if [ "$SEEN" != "$GENERATION" ]; then
 fi
 
 # [2] the privatized .git view: own HEAD, index, refs and config, objects staged here and read from real,
-#     and one such git folder for each real submodule; an agent's is a sparse checkout without .claude,
-#     which stays the real project's
+#     and one such git folder for each real submodule; an agent's .git, not a submodule's, is a sparse checkout
+#     without .claude, which stays the real project's
 FRESH=''
 if [ ! -e "$PRIVATE/HEAD" ]; then
     survey "$REAL_GIT"
