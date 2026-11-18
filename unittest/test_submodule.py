@@ -77,6 +77,23 @@ class SubmoduleTest(CheckpointCase):
         self.assertEqual(git(self.root / "sub2", "rev-parse", "HEAD"), self.pointer("main", "sub2"))
         self.assertEqual(git(self.root, "status", "--porcelain"), "")
 
+    def testclaudechange(self) -> None:
+        done = self.agent("cd sub && mkdir .claude && echo x > .claude/x && git add .claude && git commit -qm c"
+                          " && cd .. && git add sub && git commit -qm bump && git checkpoint")
+        self.assertIn("it changes sub/.claude/x", done.stderr)
+        self.assertEqual(git(self.root, "rev-parse", "main"), self.start)
+
+    def testclaudeadd(self) -> None:
+        two = self.repo("two", "m.txt")
+        (two / ".claude").mkdir()
+        (two / ".claude" / "settings.json").write_text("{}\n")
+        git(two, "add", "-A")
+        git(two, "commit", "-qm", "claude")
+        done = self.agent("git %s submodule add -q %s sub2 && git commit -qm add2 && git checkpoint" % (" ".join(FILES), two))
+        self.assertIn("it changes sub2/.claude/settings.json", done.stderr)
+        self.assertEqual(git(self.root, "rev-parse", "main"), self.start)
+        self.assertFalse((self.root / "sub2").exists())
+
     def testnested(self) -> None:
         deep = self.repo("deep", "d.txt")
         three = self.repo("three", "k.txt")

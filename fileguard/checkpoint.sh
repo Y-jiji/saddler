@@ -70,10 +70,10 @@ claudechanges() {
         fi
         # a submodule the agent added: its real git folder is the one whose work tree is SUB, compared with nothing
         for M in $(modules "$REAL_GIT/modules" modules/); do
-            REL=$(git --git-dir="$REAL_GIT/$M" config core.worktree 2>/dev/null) || continue
+            REL=$(git -C / --git-dir="$REAL_GIT/$M" --work-tree=/ config core.worktree 2>/dev/null) || continue
             if [ "$(realpath -m "$REAL_GIT/$M/$REL")" = "$SUB" ]; then
-                git --git-dir="$REAL_GIT/$M" diff --name-only \
-                    "$(git --git-dir="$REAL_GIT/$M" hash-object -t tree /dev/null)" "$SHA" -- "${PATHS[@]}" 2>/dev/null |
+                git -C / --git-dir="$REAL_GIT/$M" --work-tree=/ diff --name-only \
+                    "$(git -C / --git-dir="$REAL_GIT/$M" --work-tree=/ hash-object -t tree /dev/null)" "$SHA" -- "${PATHS[@]}" 2>/dev/null |
                     sed "s|^|${SUB#"$PROJ_FOLDER"/}/|"
             fi
         done
