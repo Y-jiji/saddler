@@ -30,10 +30,10 @@ if picked fileguard; then
     SADDLER="$HOME/.claude/saddler"
     BOX="$HOME/.claude/sandbox"
     mkdir -p "$SADDLER" "$BOX"
-    for NAME in sandbox allowlist overlayfork checkpoint requestcheckpoint forkshell statusline; do
+    for NAME in sandbox allowlist publish checkpoint requestcheckpoint forkshell statusline; do
         install -m 755 "$SRC/fileguard/$NAME.sh" "$SADDLER/$NAME.sh"
     done
-    rm -f "$SADDLER/gitlock.sh" "$SADDLER/gitwrap.sh" "$SADDLER/overlayowner.sh"
+    rm -f "$SADDLER/gitlock.sh" "$SADDLER/gitwrap.sh" "$SADDLER/overlayowner.sh" "$SADDLER/overlayfork.sh"
     if [ -e "$BOX/whitelist.txt" ] && ! cmp -s "$SRC/fileguard/whitelist.txt" "$BOX/whitelist.txt"; then
         cp "$BOX/whitelist.txt" "$BOX/whitelist.txt.old"
         echo "kept the previous whitelist as $BOX/whitelist.txt.old"

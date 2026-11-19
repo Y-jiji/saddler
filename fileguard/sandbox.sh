@@ -6,19 +6,44 @@
 # whose real files only checkpoint.sh changes. A hook starts these shells, so
 # CLAUDE_PID is exported for hooks, which cannot take arguments.
 set -euo pipefail
+# outermost DIR: the outermost git work tree holding DIR, climbing out of submodules; without one, the nearest
+# folder at or above DIR holding .git/saddler, as the hooks make it in a folder without git; empty when neither
+outermost() {
+    local TOP UP DIR
+    if TOP=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); then
+        while UP=$(git -C "$TOP" rev-parse --show-superproject-working-tree 2>/dev/null) && [ -n "$UP" ]; do
+            TOP=$UP
+        done
+        printf '%s' "$TOP"
+        return 0
+    fi
+    DIR=$(readlink -f "$1") || return 0
+    while [ -n "$DIR" ] && [ "$DIR" != / ]; do
+        if [ -d "$DIR/.git/saddler" ]; then
+            printf '%s' "$DIR"
+            return 0
+        fi
+        DIR=${DIR%/*}
+    done
+    return 0
+}
 : "${HOME:=$(getent passwd "$UID" | cut -d: -f6)}"
 HERE=$(dirname "$(readlink -f "$0")")
 export CLAUDE_PID=${CLAUDE_PID:-$PPID}
 SESSION=${CLAUDE_CODE_SESSION_ID:-}
 
-# [1] split the tag out of the invocation, naming the agent and the project; an old hook may still add nolock
-RUN=$1 AGENT='' TAGGED='' PROJ_FOLDER=${CLAUDE_PROJECT_DIR:-}
-if [ -n "$PROJ_FOLDER" ]; then PROJ_FOLDER=$(git -C "$PROJ_FOLDER" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PROJ_FOLDER"); fi
+# [1] split the tag out of the invocation, naming the agent; the project is the one holding the current folder,
+#     a project= an older hook adds is ignored, and a tag with nolock, from a hook older still, is refused
+RUN=$1 AGENT='' TAGGED='' PROJ_FOLDER=$(outermost "$PWD")
 TAG=$'^([^\n]*)# saddler( agent=([^ \n]*))?( nolock)?( project=([^\n]*))?\n(.*)$'
 if [[ $1 =~ $TAG ]]; then
     RUN=${BASH_REMATCH[1]}${BASH_REMATCH[7]}
     AGENT=${BASH_REMATCH[3]}
-    TAGGED=1 PROJ_FOLDER=${BASH_REMATCH[6]}
+    TAGGED=1
+    if [ -n "${BASH_REMATCH[4]:-}" ]; then
+        echo "sandbox.sh: this command's tag comes from an old hook, run migrate.py" >&2
+        exit 1
+    fi
     if [[ -n $AGENT && ( ! $AGENT =~ ^[A-Za-z0-9_@-][A-Za-z0-9_@.-]*$ || $AGENT == *.lock || $AGENT == *..* ) ]]; then
         echo "sandbox.sh: bad agent name '$AGENT'" >&2
         exit 1
@@ -40,5 +65,4 @@ if [ -z "$WRAPPED" ] && [ -z "$AGENT" ]; then
 fi
 
 # [4] tool call: forkshell.sh, on the view of the tagged subagent, or master
-export CLAUDE_PROJECT_DIR=$PROJ_FOLDER
 exec "$HERE/forkshell.sh" "$SESSION/${AGENT:-master}" bash -c -- "$RUN"

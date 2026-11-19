@@ -25,9 +25,9 @@ def project_root(anchor):
     return r.stdout.strip() if r.returncode == 0 else anchor
 
 
-def tagline(agent: str | None, root: str) -> str:
+def tagline(agent: str | None) -> str:
     """The comment line sandbox.sh strips from a shell command."""
-    return TAG_HEAD + (" agent=%s" % agent if agent else "") + " project=" + root
+    return TAG_HEAD + (" agent=%s" % agent if agent else "")
 
 
 def denial(reason: str) -> dict[str, object]:
@@ -90,7 +90,7 @@ def main() -> None:
         json.dump({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "updatedInput": {**tooluse, "command": tagline(agent, root) + "\n" + command},
+                "updatedInput": {**tooluse, "command": tagline(agent) + "\n" + command},
             },
         }, sys.stdout)
 

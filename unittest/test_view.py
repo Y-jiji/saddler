@@ -1,4 +1,4 @@
-"""Correctness tests for overlayfork.sh, called directly."""
+"""Correctness tests for an agent's view, through forkshell.sh."""
 
 import os
 import shutil
@@ -14,7 +14,7 @@ from test_fileguard import SandboxCase, git
 
 
 class ForkTest(SandboxCase):
-    """overlayfork.sh called directly, as a function."""
+    """forkshell.sh on agents of session s-1."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -28,20 +28,14 @@ class ForkTest(SandboxCase):
 
     def fork(self, *command: str, agent: str = "a1", claude: int = 0,
              cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-        """Run a command through overlayfork.sh, registering the agent and making its branch from the base if missing."""
-        ref = "refs/heads/" + self.branch(agent)
-        if subprocess.run(["git", "-C", str(self.root), "rev-parse", "-q", "--verify", ref]).returncode != 0:
-            git(self.root, "update-ref", ref, self.base)
-        record = self.lock / ("s-1-" + agent)
-        if not record.exists():
-            record.write_text("- 0 %s %d\n" % (self.branch(agent), self.first.pid))
-        return subprocess.run([str(self.saddler / "overlayfork.sh"), str(self.root), str(record),
-                               str(claude or self.first.pid), *command],
-                              capture_output=True, text=True, env=self.environ("s-1", self.first),
+        """Run a command through forkshell.sh on one agent, as the Claude process given, else the first."""
+        env = {**self.environ("s-1", self.first), "CLAUDE_PID": str(claude or self.first.pid)}
+        return subprocess.run([str(self.saddler / "forkshell.sh"), "s-1/" + agent, *command],
+                              capture_output=True, text=True, env=env,
                               cwd=cwd or self.root, timeout=60)
 
     def testhidden(self) -> None:
-        done = self.fork("bash", "-c", "ls -A '%s/saddler'" % (self.state / "realgit"))
+        done = self.fork("bash", "-c", "ls -A '%s/saddler'" % (self.root / ".git" / "alt"))
         self.assertEqual((done.returncode, done.stdout), (0, ""), done.stderr)
         self.assertTrue((self.state / "session-s-1" / "agent-a1").is_dir())
 
@@ -62,7 +56,7 @@ class ForkTest(SandboxCase):
 
     def testreadonly(self) -> None:
         done = self.fork("bash", "-c", "echo x > %s/evil || echo refused; git update-ref refs/remotes/saddler/main HEAD"
-                         " || echo refused; git commit -q --allow-empty -m mine && echo committed" % (self.state / "realgit"))
+                         " || echo refused; git commit -q --allow-empty -m mine && echo committed" % (self.root / ".git" / "alt"))
         self.assertEqual(done.stdout.split(), ["refused", "refused", "committed"], done.stderr)
         self.assertFalse((self.root / ".git" / "evil").exists())
         self.assertEqual(git(self.root, "log", "-1", "--format=%s", "main"), "base")
@@ -78,6 +72,15 @@ class ForkTest(SandboxCase):
         self.fork("bash", "-c", "echo n > n.txt; git add n.txt; git commit -qm a1")
         self.assertEqual(git(self.root, "log", "-1", "--format=%s", self.branch("a1")), "a1")
         self.assertEqual(list((self.folder / "agent-a1" / "git" / "objects").glob("??/*")), [])
+
+    def testpublishonly(self) -> None:
+        self.fork("git", "commit", "-q", "--allow-empty", "-m", "mine")
+        tip = git(self.root, "rev-parse", self.branch("a1"))
+        git(self.root, "update-ref", "refs/heads/" + self.branch("a1"), self.base)
+        (self.root / "sub").mkdir()
+        done = subprocess.run([str(self.saddler / "publish.sh"), self.branch("a1")], capture_output=True, text=True,
+                              env=self.environ("s-1", self.first), cwd=self.root / "sub", timeout=60)
+        self.assertEqual(git(self.root, "rev-parse", self.branch("a1")), tip, done.stderr)
 
     def testrewrite(self) -> None:
         self.fork("git", "commit", "-q", "--allow-empty", "-m", "one")
@@ -175,8 +178,7 @@ class ForkTest(SandboxCase):
 
     def testpreempted(self) -> None:
         self.fork("true")
-        late = subprocess.Popen([str(self.saddler / "overlayfork.sh"), str(self.root), str(self.lock / "s-1-a1"),
-                                 str(self.first.pid), "sleep", "30"],
+        late = subprocess.Popen([str(self.saddler / "forkshell.sh"), "s-1/a1", "sleep", "30"],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                 env=self.environ("s-1", self.first), cwd=self.root)
         self.fork("true")

@@ -16,7 +16,7 @@ from typing import Final
 REPO: Final = Path(__file__).resolve().parent.parent
 FILEGUARD: Final = REPO / "fileguard"
 HOOK: Final = FILEGUARD / "pretoolusewrite.py"
-SCRIPTS: Final = ("sandbox.sh", "allowlist.sh", "overlayfork.sh", "checkpoint.sh", "requestcheckpoint.sh", "forkshell.sh")
+SCRIPTS: Final = ("sandbox.sh", "allowlist.sh", "publish.sh", "checkpoint.sh", "requestcheckpoint.sh", "forkshell.sh")
 WRAPPER: Final = "source /dev/null 2>/dev/null || true && eval '%s' < /dev/null"
 WHITELIST: Final = "ro /usr\nro /etc\n"
 
@@ -93,7 +93,7 @@ class SandboxCase(unittest.TestCase):
               cwd: Path | None = None, agent: str | None = None, tagged: bool = True) -> subprocess.CompletedProcess[str]:
         """Run a command as a Claude Code tool call would: tagged by the hook, without CLAUDE_PROJECT_DIR."""
         if tagged:
-            command = "# saddler%s project=%s\n%s" % (" agent=" + agent if agent else "", os.path.realpath(self.root), command)
+            command = "# saddler%s\n%s" % (" agent=" + agent if agent else "", command)
         invocation = WRAPPER % command.replace("'", "'\\''")
         env = self.environ(session, claude or self.first)
         del env["CLAUDE_PROJECT_DIR"]
@@ -133,12 +133,12 @@ class HookTest(SandboxCase):
         for tool in ("Bash", "Monitor"):
             output = self.runhook({"tool_name": tool, "tool_input": {"command": "ls"}})
             self.assertEqual(output["hookSpecificOutput"]["updatedInput"]["command"],
-                             "# saddler project=%s\nls" % os.path.realpath(self.root))
+                             "# saddler\nls")
 
     def testagent(self) -> None:
         output = self.runhook({"tool_name": "Monitor", "agent_id": "a1", "tool_input": {"command": "ls"}})
         self.assertEqual(output["hookSpecificOutput"]["updatedInput"]["command"],
-                         "# saddler agent=a1 project=%s\nls" % os.path.realpath(self.root))
+                         "# saddler agent=a1\nls")
 
     def testinput(self) -> None:
         tooluse = {"command": "echo 'a'\necho b", "description": "d", "timeout": 5, "run_in_background": True}
@@ -186,6 +186,8 @@ class ShellTest(SandboxCase):
     def teststrip(self) -> None:
         done = self.shell("echo $LINENO 'a b'", agent="a1")
         self.assertEqual(done.stdout, "1 a b\n", done.stderr)
+        done = self.shell("# saddler agent=a1 project=/elsewhere\necho mid", tagged=False)
+        self.assertEqual(done.stdout, "mid\n", done.stderr)
         done = self.shell("# saddler agent=a1 nolock\necho old", tagged=False)
         self.assertEqual(done.stdout, "", done.stderr)
         self.assertIn("run migrate.py", done.stderr)
@@ -208,7 +210,8 @@ class ShellTest(SandboxCase):
         self.shell("true", agent="a1")
         agent = self.state / "session-s-1" / "agent-a1"
         self.assertEqual({p.name for p in agent.iterdir()}, {"fork", "work", "git", "display"})
-        self.assertEqual({p.name for p in self.state.iterdir()}, {"lock", "session-s-1", "realgit"})
+        self.assertEqual({p.name for p in self.state.iterdir()}, {"lock", "session-s-1"})
+        self.assertEqual(str((self.root / ".git" / "alt").readlink()), ".")
         self.assertEqual((self.lock / "s-1-a1").read_text().split()[1:3], ["0", "session-s-1/agent-a1"])
         self.assertEqual(git(self.root, "rev-parse", "session-s-1/agent-a1"), self.base)
         self.assertEqual((self.lock / "base").read_text().strip(), self.base)
@@ -259,6 +262,18 @@ class ShellTest(SandboxCase):
         done = self.shell("echo ran")
         self.assertEqual(done.stdout, "")
         self.assertIn("no session folder", done.stderr)
+
+    def testoutside(self) -> None:
+        done = self.shell("echo ran", cwd=self.home)
+        self.assertEqual(done.stdout, "")
+        self.assertIn("no session folder", done.stderr)
+
+    def testplainfolder(self) -> None:
+        plain = self.home / "plain"
+        (plain / ".git" / "saddler" / "session-s-1").mkdir(parents=True)
+        done = self.shell("echo x > made.txt; echo ran", cwd=plain)
+        self.assertEqual(done.stdout, "ran\n", done.stderr)
+        self.assertEqual((plain / "made.txt").read_text(), "x\n")
 
     def testhookshell(self) -> None:
         done = subprocess.run([str(self.saddler / "sandbox.sh"), "cat '%s/hidden'; echo x > .claude/y; touch '%s/ok'" % (self.home, self.state)],
