@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Bring every project under a folder up to date with the current fileguard hooks.
 
-Each folder holding .claude is a project. Compare its hook entries and hook files
-with the ones beside this file and fix what differs. Dry run unless --apply. Run
-it outside the sandbox, which hides other projects.
+Each git repository root holding .claude is a project. Compare its hook entries and
+hook files with the ones beside this file, fix what differs, and commit those .claude
+changes onto the default branch when HEAD is on it. Dry run unless --apply. Run it
+outside the sandbox, which hides other projects.
 """
 
 import argparse
@@ -12,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Final, TypeAlias
 
@@ -22,6 +24,7 @@ NEW: Final = ("pretoolusewrite.py", "sessionstartsandbox.py")
 SCRIPTS: Final = ("sandbox.sh", "whitelist.sh", "publish.sh", "requestcheckpoint.sh", "forkshell.sh",
            "statusline.sh")
 SKIP: Final = ("node_modules", "target")
+COMMIT: Final = "chore(.claude): update fileguard hooks"
 SESSION_START: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstartsandbox.py"'
 WRITE_GUARD: Final = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/pretoolusewrite.py" || exit 2'
 MATCHER: Final = "Agent|Bash|Monitor|Write|Edit|NotebookEdit|Read|Grep|Glob"
@@ -87,14 +90,48 @@ def register(settings: Settings) -> bool:
 
 
 def findprojects(root: Path) -> list[Path]:
-    """Every folder under root holding .claude, leaving out the home folder,
-    without entering symlinks, dot-folders or SKIP."""
+    """Every git repository root under root holding .claude, leaving out the home folder, without entering a
+    project, a symlink, a dot-folder or SKIP, so a .claude below a project's root is left alone."""
     found = []
+    home = Path.home().resolve()
     for folder, names, _ in os.walk(root):
-        if ".claude" in names and Path(folder).resolve() != Path.home().resolve():
+        if ".claude" in names and os.path.isdir(os.path.join(folder, ".git")) and Path(folder).resolve() != home:
             found.append(Path(folder))
+            names[:] = []
+            continue
         names[:] = sorted(name for name in names if not name.startswith(".") and name not in SKIP)
     return sorted(found)
+
+
+def git(project: Path, *words: str) -> subprocess.CompletedProcess[str]:
+    """git in the project, its output captured."""
+    return subprocess.run(["git", "-C", str(project), *words], capture_output=True, text=True)
+
+
+def defaultbranch(project: Path) -> str:
+    """The project's default branch: origin's HEAD, else main, else master; empty when it has none."""
+    origin = git(project, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD").stdout.strip()
+    for name in (origin.removeprefix("origin/"), "main", "master"):
+        if name and git(project, "rev-parse", "-q", "--verify", "refs/heads/" + name).returncode == 0:
+            return name
+    return ""
+
+
+def commit(project: Path, paths: list[Path], apply: bool) -> str:
+    """The line saying whether the changed paths reach the default branch, and with apply the commit, which takes
+    only the paths git does not ignore, only when HEAD is on that branch, and leaves other changes alone."""
+    branch = defaultbranch(project)
+    if not branch or git(project, "symbolic-ref", "-q", "HEAD").stdout.strip() != "refs/heads/" + branch:
+        return "leave the .claude changes uncommitted: HEAD is not on the default branch"
+    kept = [p for p in paths if git(project, "check-ignore", "-q", str(p)).returncode != 0]
+    if not kept:
+        return ""
+    if apply:
+        known = [str(p) for p in kept if p.exists() or git(project, "ls-files", "--error-unmatch", str(p)).returncode == 0]
+        if known and (git(project, "add", "-A", "--", *known).returncode != 0
+                      or git(project, "commit", "-q", "-m", COMMIT, "--", *known).returncode != 0):
+            return "committing the .claude changes failed, they stay uncommitted"
+    return "commit the .claude changes to " + branch
 
 
 def migrate(project: Path, apply: bool) -> list[str]:
@@ -149,6 +186,9 @@ def migrate(project: Path, apply: bool) -> list[str]:
         actions += ["copy %s to .claude/hooks/" % name for name in copies]
         if register(settings):
             actions.append("register the missing fileguard hook entries")
+    changed = [hooksdir / name for name in copies] + stale
+    if json.dumps(settings, sort_keys=True) != before:
+        changed.append(path)
     if apply:
         if copies:
             hooksdir.mkdir(parents=True, exist_ok=True)
@@ -160,6 +200,8 @@ def migrate(project: Path, apply: bool) -> list[str]:
             path.write_text(json.dumps(settings, indent=2) + "\n")
         if json.dumps(localset, sort_keys=True) != localbefore:
             local.write_text(json.dumps(localset, indent=2) + "\n")
+    if changed and (line := commit(project, changed, apply)):
+        actions.append(line)
     return actions
 
 

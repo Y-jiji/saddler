@@ -48,12 +48,19 @@ class MigrateTest(unittest.TestCase):
         return done.stdout
 
     def project(self, name: str, settings: dict[str, object] | None = None) -> Path:
-        """A folder holding .claude, with settings.json when given."""
+        """A git repository on main with one commit, holding .claude, with settings.json when given."""
         folder = self.work / name
         (folder / ".claude").mkdir(parents=True)
         if settings is not None:
             (folder / ".claude" / "settings.json").write_text(json.dumps(settings))
+        for words in (("init", "-q", "-b", "main"), ("config", "user.name", "t"), ("config", "user.email", "t@t"),
+                      ("add", "-A"), ("commit", "-q", "--allow-empty", "-m", "init")):
+            self.git(folder, *words)
         return folder
+
+    def git(self, folder: Path, *words: str) -> str:
+        """Run git in a folder and return its output."""
+        return subprocess.run(["git", "-C", str(folder), *words], capture_output=True, text=True, check=True).stdout.strip()
 
     def current(self, name: str) -> Path:
         """A project with the wanted entries and hook files."""
@@ -76,6 +83,7 @@ class MigrateTest(unittest.TestCase):
             self.project(name, old)
         (self.home / ".claude").mkdir()
         (self.home / ".claude" / "settings.json").write_text(json.dumps(old))
+        self.git(self.home, "init", "-q")
         self.assertIn("no project under", self.runscript(root=self.home))
 
     def testcurrent(self) -> None:
@@ -164,6 +172,39 @@ class MigrateTest(unittest.TestCase):
         (folder / ".claude" / "settings.json").write_text("{not json")
         self.assertIn("cannot read", self.runscript("--apply"))
         self.assertEqual((folder / ".claude" / "settings.json").read_text(), "{not json")
+
+    def testnested(self) -> None:
+        one = self.current("one")
+        old = {"hooks": {"Stop": [entry(STOP, 5)]}}
+        (one / "sub" / ".claude").mkdir(parents=True)
+        (one / "sub" / ".claude" / "settings.json").write_text(json.dumps(old))
+        self.assertIn("no project under", self.runscript("--apply"))
+        self.assertEqual(json.loads((one / "sub" / ".claude" / "settings.json").read_text()), old)
+
+    def testplain(self) -> None:
+        plain = self.work / "plain" / ".claude"
+        plain.mkdir(parents=True)
+        (plain / "settings.json").write_text(json.dumps({"hooks": {"Stop": [entry(STOP, 5)]}}))
+        self.assertIn("no project under", self.runscript("--apply"))
+
+    def testcommit(self) -> None:
+        folder = self.current("one")
+        (folder / ".claude" / "hooks" / "pretoolusewrite.py").write_text("stale\n")
+        (folder / "a.txt").write_text("one\n")
+        self.git(folder, "add", "-A")
+        self.git(folder, "commit", "-qm", "hooks")
+        (folder / "a.txt").write_text("two\n")
+        self.runscript("--apply")
+        self.assertEqual(self.git(folder, "log", "-1", "--format=%s"), "chore(.claude): update fileguard hooks")
+        self.assertEqual(self.git(folder, "status", "--porcelain"), "M a.txt")
+
+    def testbranch(self) -> None:
+        folder = self.current("one")
+        (folder / ".claude" / "hooks" / "pretoolusewrite.py").write_text("stale\n")
+        self.git(folder, "checkout", "-qb", "work")
+        head = self.git(folder, "rev-parse", "HEAD")
+        self.assertIn("uncommitted", self.runscript("--apply"))
+        self.assertEqual(self.git(folder, "rev-parse", "HEAD"), head)
 
     def testdryrun(self) -> None:
         folder = self.current("one")

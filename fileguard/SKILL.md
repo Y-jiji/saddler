@@ -36,5 +36,5 @@ Why:
 - `statusline.sh` prints `<TOKEN COUNT> @ <FOLDER> (session-<session-id>)`, the main agent's branch, or `(<branch>)` in a session without its folder.
 - Claude Code's wrapper format is undocumented and tool calls are told from hook shells by it, so repeat the step 7 checks after updating Claude Code.
 - Steps 2 and 3 come before step 5: once `pretoolusewrite.py` is registered, Write cannot reach `~/.claude`; once the prefix is live, neither can Bash.
-- A project on the old hooks runs its main agent's commands unguarded and has its subagents' refused under this `sandbox.sh`: run `migrate.py <folder> --apply` outside the sandbox and restart every session. It scans the folder for `.claude`, compares each project's hook entries and hook files with the current ones, and fixes what differs.
+- A project on the old hooks runs its main agent's commands unguarded and has its subagents' refused under this `sandbox.sh`: run `migrate.py <folder> --apply` outside the sandbox and restart every session. It scans the folder for git repository roots holding `.claude`, compares each project's hook entries and hook files with the current ones, fixes what differs, and commits those `.claude` changes onto the default branch when HEAD is on it.
 - `|| exit 2` denies the call if the guard is broken, instead of running it unguarded.
