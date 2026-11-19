@@ -1,4 +1,4 @@
-"""Correctness tests for git checkpoint: requestcheckpoint.sh and checkpoint.sh, through sandbox.sh."""
+"""Correctness tests for git checkpoint: requestcheckpoint.sh and forkshell.sh's checkpoint, through sandbox.sh."""
 
 import fcntl
 import os
@@ -48,7 +48,7 @@ class RequestTest(CheckpointCase):
 
 
 class CheckpointTest(CheckpointCase):
-    """checkpoint.sh, run when a command that asked for it ends."""
+    """forkshell.sh's checkpoint, run when a command that asked for it ends."""
 
     def testmove(self) -> None:
         done = self.agent("echo moved > a.txt; git commit -qam moved; git checkpoint",
@@ -77,10 +77,11 @@ class CheckpointTest(CheckpointCase):
 
     def teststale(self) -> None:
         self.agent("true")
-        (self.state / "session-s-1" / "agent-a1" / "git" / "checkpoint").write_text(self.base + "\n")
-        (self.lock / "generation").write_text("5\n")
-        done = subprocess.run([str(self.saddler / "checkpoint.sh"), str(self.root), str(self.lock / "s-1-a1")],
-                              capture_output=True, text=True, env=self.environ("s-1", self.first), timeout=30)
+        with ThreadPoolExecutor(1) as pool:
+            late = pool.submit(self.agent, "sleep 1; git commit -q --allow-empty -m mine; git checkpoint")
+            time.sleep(0.5)
+            (self.lock / "generation").write_text("5\n")
+            done = late.result()
         self.assertIn("ran first", done.stderr)
 
     def testsingle(self) -> None:

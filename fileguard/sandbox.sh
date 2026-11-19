@@ -3,7 +3,7 @@
 # CLAUDE_CODE_SHELL_PREFIX: Claude Code runs this for every shell it starts. A hook
 # shell runs under allowlist.sh. A tool call runs through forkshell.sh, so every
 # session's main agent and every subagent works on its own view of the project,
-# whose real files only checkpoint.sh changes. A hook starts these shells, so
+# whose real files only forkshell.sh's checkpoint changes. A hook starts these shells, so
 # CLAUDE_PID is exported for hooks, which cannot take arguments.
 set -euo pipefail
 # outermost DIR: the outermost git work tree holding DIR, climbing out of submodules; without one, the nearest

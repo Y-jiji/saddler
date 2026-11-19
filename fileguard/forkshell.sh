@@ -8,6 +8,7 @@
 # The view is an overlay of the real project and a privatized .git, holding one privatized git folder per
 # submodule, kept mounted by a holder process. sandbox.sh runs every tool call through it, and publish.sh
 # publishes the agent's branches when the command ends. The interactive bash also sources this file as its init file.
+# Its checkpoint function is the only code that changes the real project.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
     if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
     PS1="(fork ${CLAUDE_CODE_SESSION_ID:-}/${CLAUDE_AGENT:-master}) ${PS1:-\$ }"
@@ -102,6 +103,267 @@ privatize() {
         printf '%s\n' "$REAL_GIT/alt/$1/objects" > "$OWN/objects/info/alternates" &&
         { [ -z "${TIPS[$1]}" ] || gitdir "$OWN" update-ref "refs/heads/$BRANCH" "${TIPS[$1]}"; }
 }
+# submodules WORKTREE COMMIT: every submodule COMMIT points to, nested ones included, as worktree<TAB>commit
+submodules() {
+    local LINE META SUB
+    git -C "$1" ls-tree -r -z "$2" 2>/dev/null | while IFS= read -r -d '' LINE; do
+        META=${LINE%%$'\t'*}
+        if [ "${META%% *}" != 160000 ]; then continue; fi
+        SUB=$1/${LINE#*$'\t'}
+        printf '%s\t%s\n' "$SUB" "${META##* }"
+        if [ -e "$SUB/.git" ]; then submodules "$SUB" "${META##* }"; fi
+    done
+}
+forkfolder() {
+    local SESSION=${1#session-}
+    echo "$STATE_FOLDER/session-${SESSION%%/*}/agent-${1##*/agent-}"
+}
+# rescue WORKTREE: uncommitted changes to tracked files of the real project or a real submodule go to a rescue branch
+rescue() {
+    local INDEX TREE COMMIT NAME
+    if [ -z "$(git -C "$1" status --porcelain --untracked-files=no --ignore-submodules)" ]; then return; fi
+    INDEX=$(mktemp -u)
+    printf -v NAME 'rescue-%(%Y%m%d-%H%M%S)T' -1
+    if GIT_INDEX_FILE=$INDEX git -C "$1" read-tree HEAD &&
+       GIT_INDEX_FILE=$INDEX git -C "$1" add -u &&
+       TREE=$(GIT_INDEX_FILE=$INDEX git -C "$1" write-tree) &&
+       COMMIT=$(git -C "$1" -c user.name=saddler -c user.email=saddler@localhost \
+                    commit-tree "$TREE" -p HEAD -m "saddler: changes found in the real project") &&
+       git -C "$1" update-ref "refs/heads/$NAME" "$COMMIT"; then
+        echo "forkshell.sh: changes found in $1 are on branch $NAME" >&2
+    fi
+    rm -f "$INDEX"
+}
+killholders() {
+    local FILE HOLDER SEEN BRANCH CLAUDE BORN
+    for FILE in "$LOCK_FOLDER"/*-*; do
+        if [ ! -f "$FILE" ]; then continue; fi
+        exec 193>>"$FILE"
+        flock 193
+        if read -r HOLDER SEEN BRANCH CLAUDE BORN < "$FILE" && [ "$HOLDER" != - ]; then
+            if [ -n "$BORN" ] && [ "$(starttime "$HOLDER")" = "$BORN" ]; then
+                kill -KILL "$HOLDER" 2>/dev/null
+                for i in $(seq 1 500); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
+            fi
+            printf -- '- %s %s %s\n' "$SEEN" "$BRANCH" "$CLAUDE" > "$FILE"
+        fi
+        exec 193>&-
+    done
+}
+
+# checkpoint [LOCK_FILE]: in a subshell, so its exits, variables and locks stay inside it. Without LOCK_FILE, record
+# the first base or finish an interrupted checkpoint. With LOCK_FILE, that agent ran git checkpoint: the default
+# branch moves to its tip, its view becomes the real project and everyone's base, each submodule follows the
+# tip's pointers, and every agent starts over from its branch
+checkpoint() (
+    LOCK_FILE=${1:-}
+    MARKER=$LOCK_FOLDER/checkpointing
+    REQUEST=$LOCK_FOLDER/request
+    TRASH_FOLDER=$STATE_FOLDER/trash
+    WAIT=${SADDLER_PREEMPT_WAIT:-60}
+    if [[ ! $WAIT =~ ^[0-9]+$ ]]; then WAIT=60; fi
+
+    # [c1] one checkpoint at a time; only recording the first base waits for another
+    exec 190>>"$LOCK_FOLDER/checkpoint" || exit 1
+    if ! flock -n 190; then
+        if [ -n "$LOCK_FILE" ] || [ -s "$LOCK_FOLDER/base" ]; then
+            if [ -n "$LOCK_FILE" ]; then
+                read -r _ _ BRANCH _ < "$LOCK_FILE"
+                rm -f "$(forkfolder "$BRANCH")/git/checkpoint"
+            fi
+            echo "forkshell.sh: another checkpoint is running, run this again shortly" >&2
+            exit 1
+        fi
+        flock 190
+    fi
+
+    # [c2] no base yet: the real project becomes the first, if its tracked files are committed
+    if [ ! -s "$LOCK_FOLDER/base" ]; then
+        if [ -n "$(git -C "$PROJ_FOLDER" status --porcelain --untracked-files=no)" ]; then
+            echo "forkshell.sh: $PROJ_FOLDER has uncommitted changes to tracked files, commit or stash them first" >&2
+            exit 1
+        fi
+        if ! { git --git-dir="$REAL_GIT" config gc.pruneExpire never &&
+               git --git-dir="$REAL_GIT" config gc.packRefs false &&
+               git --git-dir="$REAL_GIT" rev-parse HEAD > "$LOCK_FOLDER/base.new" &&
+               mv -f "$LOCK_FOLDER/base.new" "$LOCK_FOLDER/base"; }; then
+            echo "forkshell.sh: cannot record the base of $PROJ_FOLDER" >&2
+            exit 1
+        fi
+        if [ ! -e "$LOCK_FOLDER/generation" ]; then echo 0 > "$LOCK_FOLDER/generation"; fi
+        exit 0
+    fi
+
+    # [c3] a request: the agent's view is current, clean and published, the default branch fast-forwards to it,
+    #      and an agent's tip changes no .claude path of the project; a submodule's .claude is that submodule's files
+    if [ ! -e "$MARKER" ]; then
+        if [ -z "$LOCK_FILE" ]; then exit 0; fi
+        read -r HOLDER SEEN BRANCH _ BORN < "$LOCK_FILE"
+        FORK_FOLDER=$(forkfolder "$BRANCH")
+        WANT=$(cat "$FORK_FOLDER/git/checkpoint" 2>/dev/null)
+        rm -f "$FORK_FOLDER/git/checkpoint"
+        TIP=$(git --git-dir="$REAL_GIT" rev-parse -q --verify "refs/heads/$BRANCH")
+        DEFAULT=$(defaultbranch)
+        GENERATION=$(cat "$LOCK_FOLDER/generation" 2>/dev/null)
+        GENERATION=${GENERATION:-0}
+        REASON=''
+        if [ "$SEEN" != "$GENERATION" ]; then
+            REASON="another checkpoint ran first"
+        elif [ -z "$WANT" ] || [ "$WANT" != "$TIP" ]; then
+            REASON="HEAD is not the published tip of $BRANCH"
+        elif [ "$DEFAULT" = HEAD ]; then
+            REASON="the project has no default branch"
+        elif ! git --git-dir="$REAL_GIT" merge-base --is-ancestor "$DEFAULT" "$TIP"; then
+            REASON="${DEFAULT#refs/heads/} cannot fast-forward to $BRANCH"
+        elif [ -z "$BORN" ] || [ "$(starttime "$HOLDER")" != "$BORN" ]; then
+            REASON="the agent's view is gone"
+        elif [ -n "$(nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" git status --porcelain)" ]; then
+            REASON="the working tree is not clean"
+        elif [[ $BRANCH != session-human-* ]] &&
+             CHANGED=$(git --git-dir="$REAL_GIT" diff --name-only "$DEFAULT" "$TIP" -- ':(glob)**/.claude' ':(glob)**/.claude/**' | head -n 1) &&
+             [ -n "$CHANGED" ]; then
+            REASON="it changes $CHANGED, and .claude is read-only to agents"
+        fi
+        if [ -n "$REASON" ]; then
+            echo "forkshell.sh: no checkpoint, $REASON" >&2
+            exit 1
+        fi
+        printf '%s\n' "$TIP" "$DEFAULT" "$((GENERATION + 1))" "$FORK_FOLDER" > "$REQUEST.new" &&
+            mv -f "$REQUEST.new" "$REQUEST" && touch "$MARKER" || exit 1
+    fi
+    if [ ! -s "$REQUEST" ]; then
+        rm -f "$MARKER"
+        exit 0
+    fi
+    { read -r TIP; read -r DEFAULT; read -r NEXT; read -r FORK_FOLDER; } < "$REQUEST"
+
+    # [c4] stop everyone: new commands fail on the marker, running ones get the wait, then every holder is killed
+    exec 189<"$LOCK_FOLDER/gate" || exit 1
+    if ! flock -w "$WAIT" -x 189; then
+        killholders
+        until flock -w 1 -x 189; do killholders; done
+    fi
+    killholders
+
+    # [c5] changes made straight in the real project or its submodules go to rescue branches
+    rescue "$PROJ_FOLDER"
+    submodules "$PROJ_FOLDER" HEAD | while IFS=$'\t' read -r SUB _; do
+        if [ -e "$SUB/.git" ]; then rescue "$SUB"; fi
+    done
+
+    # [c6] the default branch moves to the requester's tip, the requester's upper moves into real without any .git folder
+    #      or, for an agent, any .claude folder outside the submodules the tip points to,
+    #      real HEAD stays on the branch, and each submodule's HEAD is detached where the tip points
+    OLD=$(git --git-dir="$REAL_GIT" rev-parse -q --verify "$DEFAULT")
+    if [ "$OLD" != "$TIP" ] &&
+       ! { git --git-dir="$REAL_GIT" merge-base --is-ancestor "$OLD" "$TIP" &&
+           git --git-dir="$REAL_GIT" update-ref "$DEFAULT" "$TIP" "$OLD"; }; then
+        echo "forkshell.sh: no checkpoint, ${DEFAULT#refs/heads/} moved" >&2
+        rm -f "$REQUEST" "$MARKER"
+        exit 1
+    fi
+    UPPER=$FORK_FOLDER/fork
+    if [ -d "$UPPER" ]; then
+        find "$UPPER" -name .git -type d -prune -exec rm -rf {} +
+        if [[ $FORK_FOLDER != */session-human-* ]]; then
+            mapfile -t SUBS < <(submodules "$PROJ_FOLDER" "$TIP" | cut -f1)
+            find "$UPPER" -name .claude -prune -printf '%P\0' | while IFS= read -r -d '' ITEM; do
+                for SUB in "${SUBS[@]}"; do if [[ $PROJ_FOLDER/$ITEM == "$SUB"/* ]]; then continue 2; fi; done
+                echo "forkshell.sh: dropped $ITEM, .claude is read-only to agents" >&2
+                rm -rf "${UPPER:?}/$ITEM"
+            done
+        fi
+        find "$UPPER" -type c -printf '%P\0' | env -C "$PROJ_FOLDER" xargs -0 -r rm -rf --
+        find "$UPPER" -type c -delete
+        python3 -c '
+import os, sys
+for root, folders, files in os.walk(sys.argv[1]):
+    for name in folders + files:
+        path = os.path.join(root, name)
+        marks = [m for m in os.listxattr(path, follow_symlinks=False) if m.startswith("user.overlay.")]
+        if name not in folders:
+            for mark in marks:
+                os.removexattr(path, mark, follow_symlinks=False)
+        elif "user.overlay.opaque" in marks:
+            sys.stdout.write(os.path.relpath(path, sys.argv[1]) + "\0")' "$UPPER" | env -C "$PROJ_FOLDER" xargs -0 -r rm -rf --
+        find "$UPPER" ! -type d -printf '%P\0' | while IFS= read -r -d '' ITEM; do
+            if [ -d "$PROJ_FOLDER/$ITEM" ] && [ ! -L "$PROJ_FOLDER/$ITEM" ]; then rm -rf "${PROJ_FOLDER:?}/$ITEM"; fi
+        done
+        COPY=-alf
+        if [ "$(stat -c %d "$UPPER")" != "$(stat -c %d "$PROJ_FOLDER")" ]; then COPY=-af; fi
+        if ! cp "$COPY" --no-preserve=xattr "$UPPER/." "$PROJ_FOLDER/"; then
+            echo "forkshell.sh: moving the view into $PROJ_FOLDER failed, the next command finishes it" >&2
+            exit 1
+        fi
+        find "$TRASH_FOLDER" -type d -exec chmod u+rwx {} + 2>/dev/null
+        rm -rf "$TRASH_FOLDER"
+        mv -T "$UPPER" "$TRASH_FOLDER"
+    fi
+    git --git-dir="$REAL_GIT" symbolic-ref HEAD "$DEFAULT"
+    git -C "$PROJ_FOLDER" read-tree "$TIP"
+    git -C "$PROJ_FOLDER" update-index -q --refresh > /dev/null
+    submodules "$PROJ_FOLDER" "$TIP" | while IFS=$'\t' read -r SUB SHA; do
+        if [ ! -e "$SUB/.git" ] || ! git -C "$SUB" cat-file -e "$SHA^{commit}" 2>/dev/null; then
+            echo "forkshell.sh: ${SUB#"$PROJ_FOLDER"/} has no commit $SHA and stays as it was" >&2
+            continue
+        fi
+        git -C "$SUB" update-ref --no-deref HEAD "$SHA"
+        git -C "$SUB" read-tree "$SHA"
+        git -C "$SUB" update-index -q --refresh > /dev/null
+        if [ -n "$(git -C "$SUB" status --porcelain --untracked-files=no --ignore-submodules)" ]; then
+            rescue "$SUB"
+            git -C "$SUB" reset -q --hard "$SHA"
+        fi
+    done
+    if [ -n "$(git -C "$PROJ_FOLDER" status --porcelain --untracked-files=no)" ]; then
+        rescue "$PROJ_FOLDER"
+        git -C "$PROJ_FOLDER" reset -q --hard "$TIP"
+    fi
+
+    # [c7] every agent starts over: publish it once more, delete its folder, drop registrations of dead Claude
+    #      processes and branches the default branch or a submodule's HEAD has, then prune what nothing reaches
+    for FILE in "$LOCK_FOLDER"/*-*; do
+        if [ ! -f "$FILE" ]; then continue; fi
+        read -r _ _ BRANCH CLAUDE _ < "$FILE"
+        AGENT_FOLDER=$(forkfolder "$BRANCH")
+        if [ "$AGENT_FOLDER" != "$FORK_FOLDER" ]; then
+            env -C "$PROJ_FOLDER" "$HERE/publish.sh" "$BRANCH"
+        fi
+        chmod -R u+rwx "$AGENT_FOLDER" 2>/dev/null
+        rm -rf "$AGENT_FOLDER"
+        if ! kill -0 "$CLAUDE" 2>/dev/null; then rm -f "$FILE"; fi
+    done
+    git --git-dir="$REAL_GIT" for-each-ref --format='%(refname)' refs/heads/ | while read -r REF; do
+        case $REF in
+            refs/heads/session-*/agent-*)
+                if git --git-dir="$REAL_GIT" merge-base --is-ancestor "$REF" "$TIP"; then
+                    git --git-dir="$REAL_GIT" update-ref -d "$REF"
+                fi ;;
+        esac
+    done
+    modules "$REAL_GIT/modules" modules/ | while IFS= read -r M; do
+        git --git-dir="$REAL_GIT/$M" --work-tree=/ config gc.pruneExpire never
+        git --git-dir="$REAL_GIT/$M" --work-tree=/ config gc.packRefs false
+        git --git-dir="$REAL_GIT/$M" --work-tree=/ for-each-ref --format='%(refname)' refs/heads/ | while read -r REF; do
+            case $REF in
+                refs/heads/session-*/agent-*)
+                    if git --git-dir="$REAL_GIT/$M" --work-tree=/ merge-base --is-ancestor "$REF" HEAD 2>/dev/null; then
+                        git --git-dir="$REAL_GIT/$M" --work-tree=/ update-ref -d "$REF"
+                    fi ;;
+            esac
+        done
+        git --git-dir="$REAL_GIT/$M" --work-tree=/ gc -q --prune=now
+    done
+    find "$TRASH_FOLDER" -type d -exec chmod u+rwx {} + 2>/dev/null
+    rm -rf "$TRASH_FOLDER"
+    git -C "$PROJ_FOLDER" gc -q --prune=now
+
+    # [c8] the new base is out: bump the generation, open the gate
+    printf '%s\n' "$TIP" > "$LOCK_FOLDER/base.new" && mv -f "$LOCK_FOLDER/base.new" "$LOCK_FOLDER/base"
+    printf '%s\n' "$NEXT" > "$LOCK_FOLDER/generation"
+    rm -f "$REQUEST" "$MARKER"
+    echo "forkshell.sh: ${DEFAULT#refs/heads/} is now $(git --git-dir="$REAL_GIT" rev-parse --short "$TIP"), every agent's base" >&2
+)
 HERE=$(dirname "$(readlink -f "$0")")
 export CLAUDE_PID=${CLAUDE_PID:-$PPID}
 SPEC=${1:-}
@@ -147,7 +409,7 @@ fi
 
 # [3] a checkpoint is in progress: finish it if nobody runs it, otherwise fail now
 if [ -e "$LOCK_FOLDER/checkpointing" ]; then
-    "$HERE/checkpoint.sh" "$PROJ_FOLDER" || true
+    checkpoint || true
     if [ -e "$LOCK_FOLDER/checkpointing" ]; then
         echo "forkshell.sh: a checkpoint is running, run this again shortly" >&2
         exit 1
@@ -155,7 +417,7 @@ if [ -e "$LOCK_FOLDER/checkpointing" ]; then
 fi
 
 # [4] no base yet: the real project becomes the first one
-if [ ! -s "$LOCK_FOLDER/base" ]; then "$HERE/checkpoint.sh" "$PROJ_FOLDER" || exit 1; fi
+if [ ! -s "$LOCK_FOLDER/base" ]; then checkpoint || exit 1; fi
 
 # [5] the agent's branch, from the base if missing, and its registration
 if ! git -C "$PROJ_FOLDER" rev-parse --verify -q "refs/heads/$BRANCH" > /dev/null; then
@@ -360,6 +622,6 @@ exec 189<&- 195>&-
 
 # [12] the command ran git checkpoint
 if [ -e "$FORK_FOLDER/git/checkpoint" ]; then
-    "$HERE/checkpoint.sh" "$PROJ_FOLDER" "$LOCK_FILE" || if [ "$rc" -eq 0 ]; then rc=1; fi
+    checkpoint "$LOCK_FILE" || if [ "$rc" -eq 0 ]; then rc=1; fi
 fi
 exit "$rc"
