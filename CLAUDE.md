@@ -1,3 +1,3 @@
 @codeguide/WORKFLOW.md
-@codeguide/STYLE.md
+@codeguide/PRODUCTION.md
 @codeguide/GIT.md
