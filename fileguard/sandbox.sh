@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sandbox.sh INVOCATION
 # CLAUDE_CODE_SHELL_PREFIX: Claude Code runs this for every shell it starts. A hook
-# shell runs under allowlist.sh. A tool call runs through forkshell.sh, so every
+# shell runs under whitelist.sh. A tool call runs through forkshell.sh, so every
 # session's main agent and every subagent works on its own view of the project,
 # whose real files only forkshell.sh's checkpoint changes. A hook starts these shells, so
 # CLAUDE_PID is exported for hooks, which cannot take arguments.
@@ -61,7 +61,8 @@ fi
 
 # [3] hook shell
 if [ -z "$WRAPPED" ] && [ -z "$AGENT" ]; then
-    exec "$HERE/allowlist.sh" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" --chdir "$PWD" -- bash -c -- "$RUN"
+    exec "$HERE/whitelist.sh" "$HOME/.claude/sandbox/whitelist.txt" <(printf 'rw %s\nguard %s\n' "$PROJ_FOLDER" "$PROJ_FOLDER") \
+        -- --chdir "$PWD" -- bash -c -- "$RUN"
 fi
 
 # [4] tool call: forkshell.sh, on the view session-SESSION of the main agent, or session-SESSION-agent-AGENT

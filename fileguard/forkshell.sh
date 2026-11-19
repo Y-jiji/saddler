@@ -394,11 +394,11 @@ export SADDLER_VIEW=$NAME
 mkdir -p "$STATE_FOLDER/view" "$LOCK_FOLDER/view" || exit 1
 touch "$LOCK_FOLDER/gate" "$LOCK_FOLDER/checkpoint" || exit 1
 
-# [2] a project without a commit has nothing to view: a person's command runs unsandboxed, an agent's under allowlist.sh
+# [2] a project without a commit has nothing to view: a person's command runs unsandboxed, an agent's under whitelist.sh
 if ! git -C "$PROJ_FOLDER" rev-parse --verify -q HEAD > /dev/null 2>&1; then
     if [[ $NAME != session-* ]]; then exec "${RUN[@]}"; fi
-    exec "$HERE/allowlist.sh" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" \
-        --chdir "$PWD" -- "${RUN[@]}"
+    exec "$HERE/whitelist.sh" "$HOME/.claude/sandbox/whitelist.txt" <(printf 'rw %s\nguard %s\n' "$PROJ_FOLDER" "$PROJ_FOLDER") \
+        -- --unshare-pid --die-with-parent --chdir "$PWD" -- "${RUN[@]}"
 fi
 
 # [3] a checkpoint is in progress: finish it if nobody runs it, otherwise fail now
@@ -507,18 +507,16 @@ fi
 #     the project read-only; neither the holder nor its watcher keeps the gate or the registration's lock;
 #     a new view checks its branches out over the base, writing only files that differ from real;
 #     an agent's marks .claude skip-worktree first, so it is never written
-#     a person's view sits on the whole host instead of allowlist.sh's, ssh drop-ins covered;
+#     every holder sits on the whole host, ssh drop-ins covered, and an agent's commands run inside whitelist.sh's
+#     bare root, see [10];
 #     an agent's holder starts a private Xvfb, on an abstract socket only, and writes its display number to the
-#     display file before ready, waiting at most 3 s
+#     display file before ready, waiting at most 3 s; a holder that never gets go kills its own namespace, so it does
+#     not outlive an interrupted start
 if [ -z "$LIVE" ]; then
-    LAUNCH=("$HERE/allowlist.sh" "$PROJ_FOLDER")
-    HOLD='echo ready >&8; read -r _ <&7 && exec sleep infinity 7<&-'
-    if [[ $BRANCH != session-* ]]; then
-        LAUNCH=(bwrap --dev-bind / /)
-        if [ -d /etc/ssh/ssh_config.d ]; then
-            LAUNCH+=(--tmpfs /etc/ssh/ssh_config.d --remount-ro /etc/ssh/ssh_config.d)
-        fi
-    elif command -v Xvfb > /dev/null; then
+    LAUNCH=(bwrap --dev-bind / /)
+    if [ -d /etc/ssh/ssh_config.d ]; then LAUNCH+=(--tmpfs /etc/ssh/ssh_config.d --remount-ro /etc/ssh/ssh_config.d); fi
+    HOLD='echo ready >&8; read -r _ <&7 && exec sleep infinity 7<&-; kill -KILL -1'
+    if [[ $BRANCH == session-* ]] && command -v Xvfb > /dev/null; then
         HOLD='exec {P}< <(exec Xvfb -displayfd 1 -nolisten tcp -nolisten unix -screen 0 1920x1080x24 2> /dev/null 6>&- 7<&- 8>&-); '\
 'read -r -t 3 N <&$P && echo "$N" >&6; exec 6>&- {P}<&-; '$HOLD
     fi
@@ -583,7 +581,9 @@ if [ -z "$LIVE" ]; then
 fi
 flock -u 195
 
-# [10] run the command in the holder; an agent's on the private display, or on none
+# [10] run the command in the holder; an agent's inside whitelist.sh's bare root with its own PID namespace, so it
+#      reaches none of the holder's processes, its project the view, its .claude read-only, on the private display
+WRAP=()
 CWD=$PWD
 if [ ! -d "/proc/$HOLDER/root$CWD" ]; then CWD=$PROJ_FOLDER; fi
 SCREEN=()
@@ -592,8 +592,11 @@ if [[ $BRANCH == session-* ]]; then
     NUMBER=''
     { read -r NUMBER < "$FORK_FOLDER/display"; } 2>/dev/null
     if [[ $NUMBER =~ ^[0-9]+$ ]]; then SCREEN=(-u WAYLAND_DISPLAY -u XDG_SESSION_TYPE "DISPLAY=:$NUMBER"); fi
+    exec {LINES}< <(printf 'rw %s\nguard %s\n' "$PROJ_FOLDER" "$PROJ_FOLDER")
+    WRAP=("$HERE/whitelist.sh" "$HOME/.claude/sandbox/whitelist.txt" "/dev/fd/$LINES" \
+          -- --unshare-pid --die-with-parent --chdir "$CWD" --)
 fi
-nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$CWD" "${SCREEN[@]}" "${RUN[@]}" 189<&- 195>&- || rc=$?
+nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$CWD" "${SCREEN[@]}" "${WRAP[@]}" "${RUN[@]}" 189<&- 195>&- || rc=$?
 if [ "$rc" -ge 128 ]; then
     for i in $(seq 1 100); do if ! kill -0 "$HOLDER" 2>/dev/null; then break; fi; sleep 0.01; done
 fi

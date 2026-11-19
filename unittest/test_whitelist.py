@@ -1,4 +1,4 @@
-"""Correctness tests for allowlist.sh."""
+"""Correctness tests for whitelist.sh."""
 
 import os
 import socket
@@ -11,13 +11,16 @@ from test_fileguard import SandboxCase
 
 
 class AllowTest(SandboxCase):
-    """allowlist.sh called directly, as a function."""
+    """whitelist.sh called directly, as a function."""
 
-    def allow(self, command: str, root: str = "") -> subprocess.CompletedProcess[str]:
-        """Run a command with the real project mounted writable."""
-        return subprocess.run([str(self.saddler / "allowlist.sh"), root or str(self.root),
-                               "--bind", str(self.root), str(self.root), "--chdir", str(self.root),
-                               "--", "bash", "-c", command],
+    def allow(self, command: str, *lines: str, options: tuple[str, ...] | None = None) -> subprocess.CompletedProcess[str]:
+        """Run a command with whitelist.txt and the real project read-write and guarded, then the given lines,
+        with the bwrap options given, else --chdir to the project."""
+        listed = self.home / "lines.txt"
+        listed.write_text("rw %s\nguard %s\n" % (self.root, self.root) + "".join(line + "\n" for line in lines))
+        bwrap = list(options) if options is not None else ["--chdir", str(self.root)]
+        return subprocess.run([str(self.saddler / "whitelist.sh"), str(self.box / "whitelist.txt"), str(listed),
+                               "--", *bwrap, "--", "bash", "-c", command],
                               capture_output=True, text=True, env=self.environ("s-1", self.first), timeout=30)
 
     def testmachine(self) -> None:
@@ -92,8 +95,24 @@ class AllowTest(SandboxCase):
         self.assertNotEqual(done.returncode, 0)
         self.assertNotIn("ran", done.stdout)
         (self.box / "whitelist.txt").write_text("ro /usr\n")
-        done = self.allow("echo ran", root=str(self.home / "missing"))
-        self.assertNotEqual(done.returncode, 0)
+        locked = self.root / "locked"
+        locked.mkdir()
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o755)
+        done = self.allow("echo ran")
+        self.assertIn("cannot scan", done.stderr)
+        self.assertNotIn("ran", done.stdout)
+
+    def testguardlast(self) -> None:
+        done = self.allow("ls -A '%s'; cat '%s/.claude/settings.json'; echo x > '%s/.claude/x'" % ((self.root,) * 3),
+                          options=("--tmpfs", str(self.root)))
+        self.assertEqual(done.stdout, ".claude\n{}\n", done.stderr)
+        self.assertIn("Read-only", done.stderr)
+
+    def testusage(self) -> None:
+        done = subprocess.run([str(self.saddler / "whitelist.sh"), str(self.box / "whitelist.txt"), "--", "bash", "-c", "echo ran"],
+                              capture_output=True, text=True, env=self.environ("s-1", self.first), timeout=30)
+        self.assertIn("usage", done.stderr)
         self.assertNotIn("ran", done.stdout)
 
 

@@ -16,7 +16,7 @@ from typing import Final
 REPO: Final = Path(__file__).resolve().parent.parent
 FILEGUARD: Final = REPO / "fileguard"
 HOOK: Final = FILEGUARD / "pretoolusewrite.py"
-SCRIPTS: Final = ("sandbox.sh", "allowlist.sh", "publish.sh", "requestcheckpoint.sh", "forkshell.sh")
+SCRIPTS: Final = ("sandbox.sh", "whitelist.sh", "publish.sh", "requestcheckpoint.sh", "forkshell.sh")
 WRAPPER: Final = "source /dev/null 2>/dev/null || true && eval '%s' < /dev/null"
 WHITELIST: Final = "ro /usr\nro /etc\n"
 

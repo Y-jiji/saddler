@@ -151,7 +151,11 @@ class ForkTest(SandboxCase):
         first = self.fork("bash", "-c", "(sleep 1; echo bg > bg.txt) >/dev/null 2>&1 </dev/null &")
         self.assertLess(time.monotonic() - start, 0.9, first.stderr)
         time.sleep(1.1)
-        self.assertEqual(self.fork("cat", "bg.txt").stdout, "bg\n")
+        self.assertIn("No such file", self.fork("cat", "bg.txt").stderr)
+
+    def testpidhidden(self) -> None:
+        done = self.fork("bash", "-c", "cat /proc/[0-9]*/root%s/hidden 2>/dev/null; echo done" % self.home)
+        self.assertEqual(done.stdout, "done\n", done.stderr)
 
     def testexitcode(self) -> None:
         self.assertEqual(self.fork("bash", "-c", "exit 7").returncode, 7)
