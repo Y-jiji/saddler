@@ -1,6 +1,6 @@
 #!/bin/bash
-# publish.sh session-SESSION/agent-AGENT
-# One agent's branches, from its privatized .git to the real repositories of the project holding the current
+# publish.sh NAME
+# The branches of the view NAME, from its privatized .git to the real repositories of the project holding the current
 # folder: each submodule's branch, deepest first, making the real git folder of a submodule the agent added,
 # then the project's. Nothing when the agent's view is not from the current generation. It takes the agent's
 # registration lock itself, so a caller must not hold it.
@@ -138,20 +138,17 @@ PROJ_FOLDER=$(outermost "$PWD")
 REAL_GIT=$PROJ_FOLDER/.git
 STATE_FOLDER=$REAL_GIT/saddler
 LOCK_FOLDER=$STATE_FOLDER/lock
-SESSION=${BRANCH#session-}
-SESSION=${SESSION%%/*}
-AGENT=${BRANCH##*/agent-}
-FORK_FOLDER=$STATE_FOLDER/session-$SESSION/agent-$AGENT
+FORK_FOLDER=$STATE_FOLDER/view/$BRANCH
 PRIVATE=$FORK_FOLDER/git
-LOCK_FILE=$LOCK_FOLDER/$SESSION-$AGENT
+LOCK_FILE=$LOCK_FOLDER/view/$BRANCH
 MODULES=()
 declare -A WORKTREE TIPS MODULEOF
 
 # [1] refuse a bad branch name or project; the registration, under its lock; nothing unless its generation
 #     is the current one and the private .git exists
-if [[ ! $BRANCH =~ ^session-[A-Za-z0-9-]+/agent-[A-Za-z0-9_@-][A-Za-z0-9_@.-]*$ || $BRANCH == *..* || $BRANCH == *.lock ]] ||
+if [[ ! $BRANCH =~ ^[A-Za-z0-9_@-][A-Za-z0-9_@.-]*$ || $BRANCH == *..* || $BRANCH == *.lock ]] ||
    [ -z "$PROJ_FOLDER" ]; then
-    echo "usage: publish.sh session-SESSION/agent-AGENT, run in the project" >&2
+    echo "usage: publish.sh NAME, run in the project" >&2
     exit 1
 fi
 if [ ! -f "$LOCK_FILE" ]; then exit 0; fi

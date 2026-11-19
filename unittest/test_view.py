@@ -20,24 +20,24 @@ class ForkTest(SandboxCase):
         super().setUp()
         self.lock.mkdir(parents=True)
         (self.lock / "base").write_text(self.base + "\n")
-        self.folder = self.state / "session-s-1"
+        self.folder = self.state / "view"
 
     def branch(self, agent: str) -> str:
-        """The branch of an agent of session s-1."""
-        return "session-s-1/agent-" + agent
+        """The branch of a subagent of session s-1."""
+        return "session-s-1-agent-" + agent
 
     def fork(self, *command: str, agent: str = "a1", claude: int = 0,
              cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
         """Run a command through forkshell.sh on one agent, as the Claude process given, else the first."""
         env = {**self.environ("s-1", self.first), "CLAUDE_PID": str(claude or self.first.pid)}
-        return subprocess.run([str(self.saddler / "forkshell.sh"), "s-1/" + agent, *command],
+        return subprocess.run([str(self.saddler / "forkshell.sh"), self.branch(agent), *command],
                               capture_output=True, text=True, env=env,
                               cwd=cwd or self.root, timeout=60)
 
     def testhidden(self) -> None:
         done = self.fork("bash", "-c", "ls -A '%s/saddler'" % (self.root / ".git" / "alt"))
         self.assertEqual((done.returncode, done.stdout), (0, ""), done.stderr)
-        self.assertTrue((self.state / "session-s-1" / "agent-a1").is_dir())
+        self.assertTrue((self.folder / self.branch("a1")).is_dir())
 
     @unittest.skipUnless(shutil.which("Xvfb"), "no Xvfb")
     def testdisplay(self) -> None:
@@ -71,7 +71,7 @@ class ForkTest(SandboxCase):
     def testpublish(self) -> None:
         self.fork("bash", "-c", "echo n > n.txt; git add n.txt; git commit -qm a1")
         self.assertEqual(git(self.root, "log", "-1", "--format=%s", self.branch("a1")), "a1")
-        self.assertEqual(list((self.folder / "agent-a1" / "git" / "objects").glob("??/*")), [])
+        self.assertEqual(list((self.folder / self.branch("a1") / "git" / "objects").glob("??/*")), [])
 
     def testpublishonly(self) -> None:
         self.fork("git", "commit", "-q", "--allow-empty", "-m", "mine")
@@ -117,7 +117,7 @@ class ForkTest(SandboxCase):
         git(self.root, "update-ref", "refs/heads/" + self.branch("a4"), git(self.root, "rev-parse", self.branch("a3")))
         done = self.fork("bash", "-c", "cat a.txt; git status --short", agent="a4")
         self.assertEqual(done.stdout, "fresh\n", done.stderr)
-        upper = self.folder / "agent-a4" / "fork"
+        upper = self.folder / self.branch("a4") / "fork"
         self.assertEqual(sorted(str(p.relative_to(upper)) for p in upper.rglob("*") if not p.is_dir()), ["a.txt"])
 
     def testsizelog(self) -> None:
@@ -159,7 +159,7 @@ class ForkTest(SandboxCase):
     def testclaudedies(self) -> None:
         claude = self.newclaude()
         self.fork("bash", "-c", "sleep 30 >/dev/null 2>&1 </dev/null &", claude=claude.pid)
-        pid = self.holder("s-1", "a1")
+        pid = self.holder(self.branch("a1"))
         claude.kill()
         claude.wait()
         time.sleep(1.6)
@@ -167,23 +167,23 @@ class ForkTest(SandboxCase):
 
     def testreused(self) -> None:
         self.fork("true")
-        os.kill(self.holder("s-1", "a1"), signal.SIGKILL)
+        os.kill(self.holder(self.branch("a1")), signal.SIGKILL)
         time.sleep(0.1)
         other = self.newclaude()
-        record = (self.lock / "s-1-a1").read_text().split()
-        (self.lock / "s-1-a1").write_text(" ".join([str(other.pid)] + record[1:]) + "\n")
+        record = (self.lock / "view" / self.branch("a1")).read_text().split()
+        (self.lock / "view" / self.branch("a1")).write_text(" ".join([str(other.pid)] + record[1:]) + "\n")
         done = self.fork("echo", "ran")
         self.assertEqual(done.stdout, "ran\n", done.stderr)
         self.assertIsNone(other.poll())
 
     def testpreempted(self) -> None:
         self.fork("true")
-        late = subprocess.Popen([str(self.saddler / "forkshell.sh"), "s-1/a1", "sleep", "30"],
+        late = subprocess.Popen([str(self.saddler / "forkshell.sh"), self.branch("a1"), "sleep", "30"],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                 env=self.environ("s-1", self.first), cwd=self.root)
         self.fork("true")
         time.sleep(0.3)
-        os.kill(self.holder("s-1", "a1"), signal.SIGKILL)
+        os.kill(self.holder(self.branch("a1")), signal.SIGKILL)
         _, err = late.communicate(timeout=10)
         self.assertNotEqual(late.returncode, 0)
         self.assertIn("preempted", err)

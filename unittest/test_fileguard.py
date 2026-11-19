@@ -100,16 +100,16 @@ class SandboxCase(unittest.TestCase):
         return subprocess.run([str(self.saddler / "sandbox.sh"), invocation], capture_output=True, text=True,
                               env=env, cwd=cwd or self.root, timeout=60)
 
-    def holder(self, session: str, agent: str) -> int:
-        """The holder PID in a fork's lock file."""
-        return int((self.lock / ("%s-%s" % (session, agent))).read_text().split()[0])
+    def holder(self, name: str) -> int:
+        """The holder PID in a view's registration."""
+        return int((self.lock / "view" / name).read_text().split()[0])
 
     def stopall(self) -> None:
         """End every stand-in Claude and every holder."""
         for claude in self.claudes:
             claude.kill()
             claude.wait()
-        for path in self.lock.glob("*-*") if self.lock.is_dir() else []:
+        for path in (self.lock / "view").glob("*") if (self.lock / "view").is_dir() else []:
             word = path.read_text().split()[0]
             if word.isdigit():
                 try:
@@ -208,12 +208,12 @@ class ShellTest(SandboxCase):
 
     def testlayout(self) -> None:
         self.shell("true", agent="a1")
-        agent = self.state / "session-s-1" / "agent-a1"
+        agent = self.state / "view" / "session-s-1-agent-a1"
         self.assertEqual({p.name for p in agent.iterdir()}, {"fork", "work", "git", "display"})
-        self.assertEqual({p.name for p in self.state.iterdir()}, {"lock", "session-s-1"})
+        self.assertEqual({p.name for p in self.state.iterdir()}, {"lock", "session-s-1", "view"})
         self.assertEqual(str((self.root / ".git" / "alt").readlink()), ".")
-        self.assertEqual((self.lock / "s-1-a1").read_text().split()[1:3], ["0", "session-s-1/agent-a1"])
-        self.assertEqual(git(self.root, "rev-parse", "session-s-1/agent-a1"), self.base)
+        self.assertEqual((self.lock / "view" / "session-s-1-agent-a1").read_text().split()[1:3], ["0", "session-s-1-agent-a1"])
+        self.assertEqual(git(self.root, "rev-parse", "session-s-1-agent-a1"), self.base)
         self.assertEqual((self.lock / "base").read_text().strip(), self.base)
         self.assertEqual(git(self.root, "config", "gc.pruneExpire"), "never")
 
@@ -221,13 +221,13 @@ class ShellTest(SandboxCase):
         done = self.shell("echo mine > a.txt; git commit -qam mine; git log -1 --format=%s")
         self.assertEqual(done.stdout, "mine\n", done.stderr)
         self.assertEqual((self.root / "a.txt").read_text(), "two\n")
-        self.assertEqual(git(self.root, "show", "session-s-1/agent-master:a.txt"), "mine")
+        self.assertEqual(git(self.root, "show", "session-s-1:a.txt"), "mine")
         self.assertEqual(git(self.root, "rev-parse", "main"), self.base)
 
     def testotherfork(self) -> None:
         self.shell("echo mine > a.txt; git commit -qam mine")
         self.session("s-2")
-        done = self.shell("cat a.txt; git log -1 --format=%s saddler/session-s-1/agent-master", "s-2", self.newclaude())
+        done = self.shell("cat a.txt; git log -1 --format=%s saddler/session-s-1", "s-2", self.newclaude())
         self.assertEqual(done.stdout, "two\nmine\n", done.stderr)
 
     def testguard(self) -> None:

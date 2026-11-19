@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code status line: <TOKEN COUNT> @ <FOLDER> (session-<SESSION>/agent-master)
+# Claude Code status line: <TOKEN COUNT> @ <FOLDER> (session-<SESSION>)
 # A session without its fileguard folder shows (<BRANCH>) instead.
 
 input=$(cat)
@@ -31,7 +31,7 @@ short_dir() {
 label=''
 root=$(git -C "${project:-.}" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$project")
 if [[ $session =~ ^[A-Za-z0-9-]+$ ]] && [ -d "$root/.git/saddler/session-$session" ]; then
-  label=session-$session/agent-master
+  label=session-$session
 fi
 if [ -z "$label" ]; then
   label=$(git -C "${dir:-.}" branch --show-current 2>/dev/null)

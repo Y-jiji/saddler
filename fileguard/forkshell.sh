@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# forkshell.sh SESSION[/AGENT] [COMMAND...]
-# SESSION[/AGENT] may also be the branch name session-SESSION[/agent-AGENT]
-# COMMAND, or an interactive bash, on one agent's own view of the project, named by
-#   SESSION                 the session; one starting with human- gets a person's view
-#   AGENT                   the agent, default master
-# and by CLAUDE_PID, the Claude process, default the parent; the project is the one holding the current folder.
+# forkshell.sh NAME [COMMAND...]
+# COMMAND, or an interactive bash, on the view of branch NAME, the name used as is for the branch, the folder
+# .git/saddler/view/NAME and the registration .git/saddler/lock/view/NAME. A NAME starting with session- is a Claude
+# agent's view: session-SESSION for a session's main agent, session-SESSION-agent-AGENT for a subagent. Any other
+# NAME is a person's view, of that branch if it exists, else of a new one from the base; the default branch is
+# refused. CLAUDE_PID is the Claude process, default the parent; the project is the one holding the current folder.
 # The view is an overlay of the real project and a privatized .git, holding one privatized git folder per
 # submodule, kept mounted by a holder process. sandbox.sh runs every tool call through it, and publish.sh
 # publishes the agent's branches when the command ends. The interactive bash also sources this file as its init file.
 # Its checkpoint function is the only code that changes the real project.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
     if [ -f ~/.bashrc ]; then . ~/.bashrc; fi
-    PS1="(fork ${CLAUDE_CODE_SESSION_ID:-}/${CLAUDE_AGENT:-master}) ${PS1:-\$ }"
+    PS1="(fork ${SADDLER_VIEW:-}) ${PS1:-\$ }"
     return
 fi
 # outermost DIR: the outermost git work tree holding DIR, climbing out of submodules; without one, the nearest
@@ -114,9 +114,9 @@ submodules() {
         if [ -e "$SUB/.git" ]; then submodules "$SUB" "${META##* }"; fi
     done
 }
+# forkfolder BRANCH: the folder of the view of BRANCH
 forkfolder() {
-    local SESSION=${1#session-}
-    echo "$STATE_FOLDER/session-${SESSION%%/*}/agent-${1##*/agent-}"
+    echo "$STATE_FOLDER/view/$1"
 }
 # rescue WORKTREE: uncommitted changes to tracked files of the real project or a real submodule go to a rescue branch
 rescue() {
@@ -136,7 +136,7 @@ rescue() {
 }
 killholders() {
     local FILE HOLDER SEEN BRANCH CLAUDE BORN
-    for FILE in "$LOCK_FOLDER"/*-*; do
+    for FILE in "$LOCK_FOLDER"/view/*; do
         if [ ! -f "$FILE" ]; then continue; fi
         exec 193>>"$FILE"
         flock 193
@@ -219,7 +219,7 @@ checkpoint() (
             REASON="the agent's view is gone"
         elif [ -n "$(nsenter -t "$HOLDER" -U -m -p --preserve-credentials -- env -C "$PROJ_FOLDER" git status --porcelain)" ]; then
             REASON="the working tree is not clean"
-        elif [[ $BRANCH != session-human-* ]] &&
+        elif [[ $BRANCH == session-* ]] &&
              CHANGED=$(git --git-dir="$REAL_GIT" diff --name-only "$DEFAULT" "$TIP" -- ':(glob)**/.claude' ':(glob)**/.claude/**' | head -n 1) &&
              [ -n "$CHANGED" ]; then
             REASON="it changes $CHANGED, and .claude is read-only to agents"
@@ -265,7 +265,7 @@ checkpoint() (
     UPPER=$FORK_FOLDER/fork
     if [ -d "$UPPER" ]; then
         find "$UPPER" -name .git -type d -prune -exec rm -rf {} +
-        if [[ $FORK_FOLDER != */session-human-* ]]; then
+        if [[ ${FORK_FOLDER##*/} == session-* ]]; then
             mapfile -t SUBS < <(submodules "$PROJ_FOLDER" "$TIP" | cut -f1)
             find "$UPPER" -name .claude -prune -printf '%P\0' | while IFS= read -r -d '' ITEM; do
                 for SUB in "${SUBS[@]}"; do if [[ $PROJ_FOLDER/$ITEM == "$SUB"/* ]]; then continue 2; fi; done
@@ -322,7 +322,7 @@ for root, folders, files in os.walk(sys.argv[1]):
 
     # [c7] every agent starts over: publish it once more, delete its folder, drop registrations of dead Claude
     #      processes and branches the default branch or a submodule's HEAD has, then prune what nothing reaches
-    for FILE in "$LOCK_FOLDER"/*-*; do
+    for FILE in "$LOCK_FOLDER"/view/*; do
         if [ ! -f "$FILE" ]; then continue; fi
         read -r _ _ BRANCH CLAUDE _ < "$FILE"
         AGENT_FOLDER=$(forkfolder "$BRANCH")
@@ -335,7 +335,7 @@ for root, folders, files in os.walk(sys.argv[1]):
     done
     git --git-dir="$REAL_GIT" for-each-ref --format='%(refname)' refs/heads/ | while read -r REF; do
         case $REF in
-            refs/heads/session-*/agent-*)
+            refs/heads/session-*)
                 if git --git-dir="$REAL_GIT" merge-base --is-ancestor "$REF" "$TIP"; then
                     git --git-dir="$REAL_GIT" update-ref -d "$REF"
                 fi ;;
@@ -346,7 +346,7 @@ for root, folders, files in os.walk(sys.argv[1]):
         git --git-dir="$REAL_GIT/$M" --work-tree=/ config gc.packRefs false
         git --git-dir="$REAL_GIT/$M" --work-tree=/ for-each-ref --format='%(refname)' refs/heads/ | while read -r REF; do
             case $REF in
-                refs/heads/session-*/agent-*)
+                refs/heads/session-*)
                     if git --git-dir="$REAL_GIT/$M" --work-tree=/ merge-base --is-ancestor "$REF" HEAD 2>/dev/null; then
                         git --git-dir="$REAL_GIT/$M" --work-tree=/ update-ref -d "$REF"
                     fi ;;
@@ -366,43 +366,37 @@ for root, folders, files in os.walk(sys.argv[1]):
 )
 HERE=$(dirname "$(readlink -f "$0")")
 export CLAUDE_PID=${CLAUDE_PID:-$PPID}
-SPEC=${1:-}
-SESSION=${SPEC%%/*} AGENT=master
-if [[ $SPEC == */* ]]; then AGENT=${SPEC#*/}; fi
-SESSION=${SESSION#session-}
-AGENT=${AGENT#agent-}
+NAME=${1:-}
 PROJ_FOLDER=$(outermost "$PWD")
 REAL_GIT=$PROJ_FOLDER/.git
 STATE_FOLDER=$REAL_GIT/saddler
-SESSION_FOLDER=$STATE_FOLDER/session-$SESSION
-FORK_FOLDER=$SESSION_FOLDER/agent-$AGENT
+FORK_FOLDER=$STATE_FOLDER/view/$NAME
 PRIVATE=$FORK_FOLDER/git
 LOCK_FOLDER=$STATE_FOLDER/lock
-LOCK_FILE=$LOCK_FOLDER/$SESSION-$AGENT
-BRANCH=session-$SESSION/agent-$AGENT
+LOCK_FILE=$LOCK_FOLDER/view/$NAME
+BRANCH=$NAME
 RUN=("${@:2}")
 if [ $# -le 1 ]; then RUN=(bash --init-file "$HERE/forkshell.sh" -i); fi
 MODULES=()
 declare -A WORKTREE TIPS BASES MODULEOF
 
-# [1] refuse a bad session id, agent name or project; make the session and lock folders
-if [[ ! $SESSION =~ ^[A-Za-z0-9-]+$ ]]; then
-    echo "usage: forkshell.sh SESSION[/AGENT] [COMMAND...], or session-SESSION[/agent-AGENT] for SESSION[/AGENT]," \
-        "SESSION being letters, digits and dashes" >&2
-    exit 1
-fi
-if [[ ! $AGENT =~ ^[A-Za-z0-9_@-][A-Za-z0-9_@.-]*$ || $AGENT == *.lock || $AGENT == *..* ]]; then
-    echo "forkshell.sh: bad agent name '$AGENT'" >&2
+# [1] refuse a bad name, a missing project or the default branch; make the view and registration folders
+if [[ ! $NAME =~ ^[A-Za-z0-9_@-][A-Za-z0-9_@.-]*$ || $NAME == *.lock || $NAME == *..* || $NAME == HEAD ]]; then
+    echo "usage: forkshell.sh NAME [COMMAND...], NAME being a branch name of letters, digits and _ @ . -" >&2
     exit 1
 fi
 if [ -z "$PROJ_FOLDER" ]; then echo "forkshell.sh: $PWD is in no project" >&2; exit 1; fi
-export CLAUDE_CODE_SESSION_ID=$SESSION CLAUDE_AGENT=$AGENT
-mkdir -p "$SESSION_FOLDER" "$LOCK_FOLDER" || exit 1
+if [ "refs/heads/$NAME" = "$(defaultbranch)" ]; then
+    echo "forkshell.sh: $NAME is the default branch, which only a checkpoint moves" >&2
+    exit 1
+fi
+export SADDLER_VIEW=$NAME
+mkdir -p "$STATE_FOLDER/view" "$LOCK_FOLDER/view" || exit 1
 touch "$LOCK_FOLDER/gate" "$LOCK_FOLDER/checkpoint" || exit 1
 
 # [2] a project without a commit has nothing to view: a person's command runs unsandboxed, an agent's under allowlist.sh
 if ! git -C "$PROJ_FOLDER" rev-parse --verify -q HEAD > /dev/null 2>&1; then
-    if [[ $SESSION == human-* ]]; then exec "${RUN[@]}"; fi
+    if [[ $NAME != session-* ]]; then exec "${RUN[@]}"; fi
     exec "$HERE/allowlist.sh" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" \
         --chdir "$PWD" -- "${RUN[@]}"
 fi
@@ -485,7 +479,7 @@ if [ ! -e "$PRIVATE/HEAD" ]; then
            gitdir "$BUILD/.git" symbolic-ref HEAD "refs/heads/$BRANCH" &&
            gitdir "$BUILD/.git" config include.path "$REAL_GIT/alt/config" &&
            gitdir "$BUILD/.git" config gc.auto 0 &&
-           { [[ $BRANCH == session-human-* ]] || {
+           { [[ $BRANCH != session-* ]] || {
                  gitdir "$BUILD/.git" config core.sparseCheckout true &&
                  gitdir "$BUILD/.git" config core.sparseCheckoutCone false &&
                  gitdir "$BUILD/.git" config sparse.expectFilesOutsideOfPatterns true &&
@@ -519,7 +513,7 @@ fi
 if [ -z "$LIVE" ]; then
     LAUNCH=("$HERE/allowlist.sh" "$PROJ_FOLDER")
     HOLD='echo ready >&8; read -r _ <&7 && exec sleep infinity 7<&-'
-    if [[ $BRANCH == session-human-* ]]; then
+    if [[ $BRANCH != session-* ]]; then
         LAUNCH=(bwrap --dev-bind / /)
         if [ -d /etc/ssh/ssh_config.d ]; then
             LAUNCH+=(--tmpfs /etc/ssh/ssh_config.d --remount-ro /etc/ssh/ssh_config.d)
@@ -593,7 +587,7 @@ flock -u 195
 CWD=$PWD
 if [ ! -d "/proc/$HOLDER/root$CWD" ]; then CWD=$PROJ_FOLDER; fi
 SCREEN=()
-if [[ $BRANCH != session-human-* ]]; then
+if [[ $BRANCH == session-* ]]; then
     SCREEN=(-u WAYLAND_DISPLAY -u XDG_SESSION_TYPE -u DISPLAY)
     NUMBER=''
     { read -r NUMBER < "$FORK_FOLDER/display"; } 2>/dev/null

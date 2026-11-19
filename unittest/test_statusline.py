@@ -11,7 +11,7 @@ from typing import Final
 
 SCRIPT: Final = Path(__file__).resolve().parent.parent / "fileguard" / "statusline.sh"
 PLAIN: Final = "1.3k @ ~/my proj (main)\n"
-FORKED: Final = "1.3k @ ~/my proj (session-abc/agent-master)\n"
+FORKED: Final = "1.3k @ ~/my proj (session-abc)\n"
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq is not installed")

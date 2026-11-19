@@ -10,19 +10,18 @@ from test_fileguard import SandboxCase, git
 class ForkShellTest(SandboxCase):
     """forkshell.sh from the project folder, with the throwaway home."""
 
-    def forkshell(self, session: str, *words: str, agent: str | None = None,
-                  stdin: str | None = None) -> subprocess.CompletedProcess[str]:
-        """Run forkshell.sh in a session, on an agent if given, with the given words and input."""
+    def forkshell(self, name: str, *words: str, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+        """Run forkshell.sh on the view of branch name, with the given words and input."""
         environ = {name: value for name, value in os.environ.items()
-                   if name not in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_AGENT", "CLAUDE_PROJECT_DIR", "CLAUDE_PID")}
+                   if name not in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_AGENT", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
+                                   "SADDLER_VIEW")}
         environ.update({"HOME": str(self.home), "TMPDIR": str(self.home / "tmp"), "TERM": "dumb"})
-        spec = session if agent is None else session + "/" + agent
-        return subprocess.run([str(self.saddler / "forkshell.sh"), spec, *words], input=stdin, capture_output=True,
+        return subprocess.run([str(self.saddler / "forkshell.sh"), name, *words], input=stdin, capture_output=True,
                               text=True, env=environ, cwd=self.root, timeout=60)
 
     def branch(self) -> str:
-        """The branch of the person session human-h1."""
-        return "session-human-h1/agent-master"
+        """The branch of the person's view human-h1."""
+        return "human-h1"
 
     def testcommand(self) -> None:
         done = self.forkshell("human-h1", "bash", "-c", "echo mine > a.txt && git commit -qam 'mine too'")
@@ -31,9 +30,9 @@ class ForkShellTest(SandboxCase):
         self.assertEqual(git(self.root, "show", self.branch() + ":a.txt"), "mine")
 
     def testinteractive(self) -> None:
-        done = self.forkshell("human-h1", stdin="echo inside $CLAUDE_CODE_SESSION_ID $CLAUDE_AGENT\ncat a.txt\nexit\n")
-        self.assertIn("inside human-h1 master\ntwo\n", done.stdout, done.stderr)
-        self.assertIn("(fork human-h1/master)", done.stderr)
+        done = self.forkshell("human-h1", stdin="echo inside $SADDLER_VIEW\ncat a.txt\nexit\n")
+        self.assertIn("inside human-h1\ntwo\n", done.stdout, done.stderr)
+        self.assertIn("(fork human-h1)", done.stderr)
 
     def testreuse(self) -> None:
         self.forkshell("human-h1", "bash", "-c", "echo kept > k.txt")
@@ -54,17 +53,23 @@ class ForkShellTest(SandboxCase):
 
     def testagent(self) -> None:
         self.shell("echo agent > w.txt")
-        done = self.forkshell("s-1", "bash", "-c", "cat w.txt && echo person > p.txt")
+        done = self.forkshell("session-s-1", "bash", "-c", "cat w.txt && echo person > p.txt")
         self.assertEqual(done.stdout, "agent\n", done.stderr)
         self.assertEqual(self.shell("cat p.txt").stdout, "person\n")
 
     def testsubagent(self) -> None:
-        done = self.forkshell("s-1", "git", "branch", "--show-current", agent="a1")
-        self.assertEqual(done.stdout, "session-s-1/agent-a1\n", done.stderr)
+        done = self.forkshell("session-s-1-agent-a1", "git", "branch", "--show-current")
+        self.assertEqual(done.stdout, "session-s-1-agent-a1\n", done.stderr)
 
-    def testbranchname(self) -> None:
-        done = self.forkshell("session-s-1", "git", "branch", "--show-current", agent="agent-a1")
-        self.assertEqual(done.stdout, "session-s-1/agent-a1\n", done.stderr)
+    def testdefault(self) -> None:
+        done = self.forkshell("main", "true")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("default branch", done.stderr)
+
+    def testexisting(self) -> None:
+        git(self.root, "branch", "feature-x", "main~1")
+        done = self.forkshell("feature-x", "bash", "-c", "git branch --show-current && cat a.txt")
+        self.assertEqual(done.stdout, "feature-x\none\n", done.stderr)
 
 
 if __name__ == "__main__":

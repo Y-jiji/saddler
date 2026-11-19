@@ -19,6 +19,11 @@ class CheckpointCase(SandboxCase):
         with mock.patch.dict(os.environ, env):
             return self.shell(command, agent=agent)
 
+    def person(self, command: str, name: str = "human-x") -> subprocess.CompletedProcess[str]:
+        """Run a command as a person in a terminal would: forkshell.sh on the view of branch name."""
+        return subprocess.run([str(self.saddler / "forkshell.sh"), name, "bash", "-c", command], capture_output=True,
+                              text=True, env=self.environ("s-1", self.first), cwd=self.root, timeout=60)
+
     def exists(self, ref: str) -> bool:
         """Whether a ref or object exists in the real project."""
         return subprocess.run(["git", "-C", str(self.root), "cat-file", "-e", ref],
@@ -62,7 +67,7 @@ class CheckpointTest(CheckpointCase):
         self.assertEqual(git(self.root, "status", "--porcelain", "--untracked-files=no"), "")
         self.assertEqual(git(self.root, "rev-parse", "HEAD"), tip)
         self.assertEqual(git(self.root, "symbolic-ref", "HEAD"), "refs/heads/main")
-        self.assertFalse(self.exists("refs/heads/session-s-1/agent-a1"))
+        self.assertFalse(self.exists("refs/heads/session-s-1-agent-a1"))
         self.assertEqual((self.lock / "base").read_text().strip(), tip)
         self.assertEqual((self.lock / "generation").read_text().strip(), "1")
         self.assertFalse((self.lock / "checkpointing").exists())
@@ -90,7 +95,7 @@ class CheckpointTest(CheckpointCase):
             fcntl.flock(f, fcntl.LOCK_EX)
             done = self.agent("git commit -q --allow-empty -m mine; git checkpoint")
         self.assertIn("another checkpoint is running", done.stderr)
-        self.assertFalse((self.state / "session-s-1" / "agent-a1" / "git" / "checkpoint").exists())
+        self.assertFalse((self.state / "view" / "session-s-1-agent-a1" / "git" / "checkpoint").exists())
         self.assertEqual(git(self.root, "rev-parse", "main"), self.base)
 
     def testpreempt(self) -> None:
@@ -114,8 +119,8 @@ class CheckpointTest(CheckpointCase):
 
     def testrecover(self) -> None:
         self.agent("echo moved > a.txt; git commit -qam moved")
-        tip = git(self.root, "rev-parse", "session-s-1/agent-a1")
-        (self.lock / "request").write_text("%s\nrefs/heads/main\n1\n%s\n" % (tip, self.state / "session-s-1" / "agent-a1"))
+        tip = git(self.root, "rev-parse", "session-s-1-agent-a1")
+        (self.lock / "request").write_text("%s\nrefs/heads/main\n1\n%s\n" % (tip, self.state / "view" / "session-s-1-agent-a1"))
         (self.lock / "checkpointing").touch()
         done = self.shell("echo ran")
         self.assertEqual(done.stdout, "ran\n", done.stderr)
@@ -147,15 +152,13 @@ class CheckpointTest(CheckpointCase):
         self.assertFalse((self.root / "sub" / ".claude").exists())
 
     def testclaudehuman(self) -> None:
-        self.session("human-x")
-        done = self.shell("echo '{\"x\": 1}' > .claude/settings.json && git commit -qam claude && git checkpoint", "human-x")
+        done = self.person("echo '{\"x\": 1}' > .claude/settings.json && git commit -qam claude && git checkpoint")
         self.assertIn("every agent's base", done.stderr)
         self.assertEqual((self.root / ".claude" / "settings.json").read_text(), '{"x": 1}\n')
 
     def testclaudebehind(self) -> None:
         self.agent("echo w > w.txt && git add w.txt && git commit -qm w", agent="a2")
-        self.session("human-x")
-        done = self.shell("echo '{\"x\": 1}' > .claude/settings.json && git commit -qam claude && git checkpoint", "human-x")
+        done = self.person("echo '{\"x\": 1}' > .claude/settings.json && git commit -qam claude && git checkpoint")
         self.assertIn("every agent's base", done.stderr)
         done = self.agent("cat w.txt .claude/settings.json && git status --short", agent="a2")
         self.assertEqual(done.stdout, 'w\n{"x": 1}\n', done.stderr)

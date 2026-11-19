@@ -48,20 +48,20 @@ class SubmoduleTest(CheckpointCase):
 
     def testcommit(self) -> None:
         done = self.agent("cd sub && echo more >> l.txt && git commit -qam subwork && cd .. && git add sub && git commit -qm bump")
-        module = git(self.root / "sub", "rev-parse", "session-s-1/agent-a1")
+        module = git(self.root / "sub", "rev-parse", "session-s-1-agent-a1")
         self.assertEqual(git(self.root / "sub", "log", "-1", "--format=%s", module), "subwork", done.stderr)
-        self.assertEqual(self.pointer("session-s-1/agent-a1", "sub"), module)
+        self.assertEqual(self.pointer("session-s-1-agent-a1", "sub"), module)
         self.assertEqual((self.root / "sub" / "l.txt").read_text(), "lib\n")
 
     def testcwd(self) -> None:
         done = self.shell("git log -1 --format=%s && git -C .. branch --show-current", cwd=self.root / "sub")
-        self.assertEqual(done.stdout, "lib\nsession-s-1/agent-master\n", done.stderr)
+        self.assertEqual(done.stdout, "lib\nsession-s-1\n", done.stderr)
 
     def testmissing(self) -> None:
         done = self.agent("cd sub && git checkout -qb other && echo x >> l.txt && git commit -qam other && cd .. &&"
                           " git add sub && git commit -qm bump")
         self.assertIn("lacks", done.stderr)
-        self.assertEqual(git(self.root, "rev-parse", "session-s-1/agent-a1"), self.start)
+        self.assertEqual(git(self.root, "rev-parse", "session-s-1-agent-a1"), self.start)
 
     def testcheckpoint(self) -> None:
         done = self.agent("cd sub && echo more >> l.txt && git commit -qam subwork && cd .. && git add sub &&"

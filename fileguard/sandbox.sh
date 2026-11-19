@@ -64,5 +64,8 @@ if [ -z "$WRAPPED" ] && [ -z "$AGENT" ]; then
     exec "$HERE/allowlist.sh" "$PROJ_FOLDER" --bind "$PROJ_FOLDER" "$PROJ_FOLDER" --chdir "$PWD" -- bash -c -- "$RUN"
 fi
 
-# [4] tool call: forkshell.sh, on the view of the tagged subagent, or master
-exec "$HERE/forkshell.sh" "$SESSION/${AGENT:-master}" bash -c -- "$RUN"
+# [4] tool call: forkshell.sh, on the view session-SESSION of the main agent, or session-SESSION-agent-AGENT
+#     of the tagged subagent
+NAME=session-$SESSION
+if [ -n "$AGENT" ]; then NAME=$NAME-agent-$AGENT; fi
+exec "$HERE/forkshell.sh" "$NAME" bash -c -- "$RUN"
