@@ -11,6 +11,7 @@ To invoke: run claude code in project folder; in claude code, type one of
 - `/codeguide`: software engineering instructions
 - `/mathguide`: formally verified (Lean) math project instructions
 - `/evalguide`: system evaluation repository layout
+- `/optimize`: optimize a target in model-experiment iterations until the given time budget runs out
 
 # Design
 
