@@ -4,7 +4,14 @@ description: optimize a target in model-experiment iterations until the given ti
 disable-model-invocation: true
 ---
 
-To optimize the target, do the following per iteration. Wake yourself up at least once per 15 mintues. 
-1. State the mechanism (a rough model of the target, and what factor is optimized, what factor is forsaken) + expectation (a target value that such improvement reach). 
-2. Experiment. If fail, rethink the model and the next thing to try. If succeed, consolidate the changes in current branch. 
-3. Even if the goal is cleared, work until given time budget, try continue to improve the solution.  
+Optimize the target iteratively. Wake yourself up at least once every 15 minutes. Do the following per iteration. 
+1. Model: explain the mechanism for creating the alpha. model PnL (profit and loss): 
+    - Alpha: profitable directions
+    - Overhead: extra cost added, how large are they
+    - Risk: exposure to unwanted factors
+2. Backtest: verify your observations. make sure the objective moves as expected when you move that factor alone.
+    - Scale-down: you can set a scale-down experiment (smaller scale, less datasets, ...) to cut wrong observation early
+    - Oracle: fix other factors using oracle / trace info (whenever possible) to separate the factor
+3. Build: combine observations into an executable algorithm. add needed profile counters
+4. Execute: run the algorithm end-to-end
+5. Attribution: attribute PnL to changed components. check if the split is expected
