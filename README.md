@@ -9,7 +9,6 @@ To install: `bash install.sh [NAME...]`, every skill or only the named ones
 To invoke: run claude code in project folder; in claude code, type one of
 - `/fileguard`: sandbox Bash, and give every session and subagent its own view of the project
 - `/codeguide`: software engineering instructions
-- `/mathguide`: formally verified (Lean) math project instructions
 - `/evalguide`: system evaluation repository layout
 - `/optimize`: optimize a target in model-experiment iterations until the given time budget runs out
 

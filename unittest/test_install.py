@@ -78,6 +78,12 @@ class InstallTest(unittest.TestCase):
         self.assertFalse((self.home / "skills").exists())
         self.assertFalse(self.bashrc.exists())
 
+    def teststale(self) -> None:
+        stale = self.home / "skills" / "mathguide"
+        stale.mkdir(parents=True)
+        self.install("codeguide")
+        self.assertFalse(stale.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

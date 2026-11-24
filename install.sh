@@ -24,6 +24,9 @@ done
 ALL=$#
 picked() { [ "$ALL" -eq 0 ] || [ -n "${WANT[$1]:-}" ]; }
 
+# skills saddler no longer ships, left behind by an earlier install
+rm -rf "$SKILLS/mathguide"
+
 # fileguard's shell scripts and registry, which run outside the project, and forkshell in ~/.bashrc;
 # the registry is replaced, the previous one kept as whitelist.txt.old when it differs
 if picked fileguard; then
